@@ -1,0 +1,27 @@
+# PROJECT.md
+
+Exact commands for working in this repo.
+
+## Setup
+
+```bash
+make setup
+```
+
+## Quality gate
+
+```bash
+make check
+```
+
+## Run
+
+```bash
+python -m jwt_workbench --help
+```
+
+## Example
+
+```bash
+python -m jwt_workbench sign --payload '{"sub":"user","exp":1735689600}' --key-text "secret123"
+```

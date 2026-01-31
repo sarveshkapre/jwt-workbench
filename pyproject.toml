@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jwt-workbench"
+version = "0.1.0"
+description = "jwt.io-style offline JWT decode/verify/sign + JWK/JWKS tools + common footgun checks"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+  "PyJWT==2.10.1",
+  "cryptography==44.0.0",
+]
+
+[project.scripts]
+jwt-workbench = "jwt_workbench.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_configs = true
+mypy_path = "src"
