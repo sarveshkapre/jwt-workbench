@@ -172,7 +172,7 @@ _INDEX_HTML = """
 
 
 _APP_JS = """
-const tokenEl = document.getElementById('token');
+  const tokenEl = document.getElementById('token');
 const headerEl = document.getElementById('header');
 const payloadEl = document.getElementById('payload');
 const warningsEl = document.getElementById('warnings');
@@ -185,23 +185,27 @@ const jwkOutputEl = document.getElementById('jwkOutput');
 const audEl = document.getElementById('aud');
 const issEl = document.getElementById('iss');
 const leewayEl = document.getElementById('leeway');
-const copyTokenEl = document.getElementById('copyToken');
-const copyJwkOutputEl = document.getElementById('copyJwkOutput');
-const formatHeaderEl = document.getElementById('formatHeader');
-const formatPayloadEl = document.getElementById('formatPayload');
+  const copyTokenEl = document.getElementById('copyToken');
+  const copyJwkOutputEl = document.getElementById('copyJwkOutput');
+  const formatHeaderEl = document.getElementById('formatHeader');
+  const formatPayloadEl = document.getElementById('formatPayload');
+  const convertJwkEl = document.getElementById('convertJwk');
+  const convertJwksEl = document.getElementById('convertJwks');
 
-const actionButtonIds = [
-  'decode',
-  'verify',
-  'sign',
-  'copyToken',
-  'convertJwk',
-  'convertJwks',
-  'copyJwkOutput',
-];
-const actionButtons = actionButtonIds
-  .map((id) => document.getElementById(id))
-  .filter((el) => Boolean(el));
+  const actionButtonIds = [
+    'decode',
+    'verify',
+    'sign',
+    'copyToken',
+    'convertJwk',
+    'convertJwks',
+    'copyJwkOutput',
+    'formatHeader',
+    'formatPayload',
+  ];
+  const actionButtons = actionButtonIds
+    .map((id) => document.getElementById(id))
+    .filter((el) => Boolean(el));
 
 const setBusy = (busy) => {
   actionButtons.forEach((button) => {
@@ -341,27 +345,28 @@ const verify = async () => {
   setStatus('Verified', 'ok');
 };
 
-const sign = async () => {
-  const payloadObj = parseJsonObject(payloadEl.value, 'Payload');
-  if (payloadObj === null) {
-    return;
-  }
-  const headerObj = parseJsonObject(headerEl.value, 'Header');
-  const payloadText = JSON.stringify(payloadObj, null, 2);
-  const headerText = headerObj ? JSON.stringify(headerObj, null, 2) : '';
-  setStatus('', '');
-  const data = await request('/api/sign', {
-    payload: payloadText,
-    header: headerText,
-    alg: algEl.value,
-    key_type: keyTypeEl.value,
-    key_text: keyEl.value,
-    kid: kidEl.value || null,
-  });
-  tokenEl.value = data.token;
-  setWarnings(data.warnings || []);
-  setStatus('Signed', 'ok');
-};
+  const sign = async () => {
+    const payloadObj = parseJsonObject(payloadEl.value, 'Payload');
+    if (payloadObj === null) {
+      return;
+    }
+    const headerObj = parseJsonObject(headerEl.value, 'Header');
+    const payloadText = JSON.stringify(payloadObj, null, 2);
+    const headerText = headerObj ? JSON.stringify(headerObj, null, 2) : '';
+    setStatus('', '');
+    const alg = algEl.value;
+    const data = await request('/api/sign', {
+      payload: payloadText,
+      header: headerText,
+      alg,
+      key_type: keyTypeEl.value,
+      key_text: keyEl.value,
+      kid: kidEl.value || null,
+    });
+    tokenEl.value = data.token;
+    setWarnings(data.warnings || []);
+    setStatus('Signed', 'ok');
+  };
 
 const convertJwk = async () => {
   setStatus('', '');
@@ -418,17 +423,36 @@ copyTokenEl.addEventListener('click', async () => {
   });
 });
 
-copyJwkOutputEl.addEventListener('click', async () => {
-  await runAction(async () => {
-    await copyText(jwkOutputEl.value);
-    setStatus('Copied output', 'ok');
+  copyJwkOutputEl.addEventListener('click', async () => {
+    await runAction(async () => {
+      await copyText(jwkOutputEl.value);
+      setStatus('Copied output', 'ok');
+    });
   });
-});
 
-formatHeaderEl.addEventListener('click', async () => {
-  await runAction(async () => {
-    formatJsonTextarea(headerEl, 'Header');
-    setStatus('Formatted header', 'ok');
+  const updateKeyUi = () => {
+    const noneAlg = algEl.value === 'none';
+    keyTypeEl.disabled = noneAlg;
+    keyEl.disabled = noneAlg;
+    kidEl.disabled = noneAlg;
+    convertJwkEl.disabled = noneAlg;
+    convertJwksEl.disabled = noneAlg;
+    if (noneAlg) {
+      keyEl.placeholder = 'No key required for alg=none';
+      kidEl.placeholder = 'Not used for alg=none';
+    } else {
+      keyEl.placeholder = 'Paste secret or key material';
+      kidEl.placeholder = 'Optional kid for JWKS';
+    }
+  };
+
+  algEl.addEventListener('change', updateKeyUi);
+  updateKeyUi();
+
+  formatHeaderEl.addEventListener('click', async () => {
+    await runAction(async () => {
+      formatJsonTextarea(headerEl, 'Header');
+      setStatus('Formatted header', 'ok');
   });
 });
 
@@ -821,10 +845,11 @@ class JWTWorkbenchHandler(BaseHTTPRequestHandler):
                 key_type = str(payload.get("key_type", "secret"))
                 key_text = str(payload.get("key_text", ""))
                 kid = payload.get("kid")
-                if key_type not in {"secret", "pem"}:
-                    raise ValueError("signing requires secret or PEM key")
-                if not key_text:
-                    raise ValueError("key material is required")
+                if alg != "none":
+                    if key_type not in {"secret", "pem"}:
+                        raise ValueError("signing requires secret or PEM key")
+                    if not key_text:
+                        raise ValueError("key material is required")
                 if payload_text is None:
                     raise ValueError("payload is required")
                 payload_data = json.loads(str(payload_text))
@@ -840,7 +865,7 @@ class JWTWorkbenchHandler(BaseHTTPRequestHandler):
                 token = sign_token(
                     payload=payload_data,
                     key_path=None,
-                    key_text=key_text,
+                    key_text=key_text if alg != "none" else None,
                     alg=alg,
                     kid=str(kid) if kid else None,
                     headers=header_data or None,

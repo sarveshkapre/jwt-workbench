@@ -139,9 +139,9 @@ def main(argv: list[str] | None = None) -> int:
     p_sign = sub.add_parser("sign", help="Sign a JWT")
     p_sign.add_argument("--payload", help="JSON payload string")
     p_sign.add_argument("--payload-file", help="Path to JSON payload file")
-    p_sign.add_argument("--alg", default="HS256", help="Algorithm (HS256 or RS256)")
-    p_sign.add_argument("--key", help="Path to secret or PEM private key")
-    p_sign.add_argument("--key-text", help="Raw secret string (HS256)")
+    p_sign.add_argument("--alg", default="HS256", help="Algorithm (HS256, RS256, or none)")
+    p_sign.add_argument("--key", help="Path to secret or PEM private key (not used for alg=none)")
+    p_sign.add_argument("--key-text", help="Raw secret string (HS256) (not used for alg=none)")
     p_sign.add_argument("--kid", help="Optional key id")
     p_sign.set_defaults(func=_cmd_sign)
 

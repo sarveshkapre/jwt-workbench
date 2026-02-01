@@ -172,6 +172,19 @@ def sign_token(
     kid: str | None,
     headers: dict[str, Any] | None = None,
 ) -> str:
+    if alg == "none":
+        none_headers: dict[str, Any] = {}
+        if headers:
+            none_headers.update(headers)
+        if kid:
+            none_headers["kid"] = kid
+        return jwt.encode(
+            payload,
+            key=cast(Any, None),
+            algorithm="none",
+            headers=none_headers or None,
+        )
+
     key: Any
     if key_path:
         key = _load_key_from_file(Path(key_path), alg)

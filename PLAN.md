@@ -9,6 +9,7 @@ JWT Workbench is an offline jwt.io-style CLI + web UI to decode, verify, and sig
 - Optional `aud`/`iss` claim verification + clock-skew `leeway` for verification (CLI + web).
 - Web UI: copy buttons (JWT + JWK/JWKS output), keyboard shortcuts, and light/dark theme support.
 - Web UI: JSON formatting buttons for header/payload (plus client-side JSON validation before signing).
+- Signing: support generating unsecured `alg=none` tokens (CLI + web), without requiring key material.
 - Sign HS256/RS256 tokens from JSON payload (CLI + web).
 - Convert PEM ↔︎ JWK/JWKS (CLI + web).
 - Footgun warnings (`alg=none`, missing/invalid `exp`, expired/near-expiry, missing `aud`/`iss`, `nbf`/`iat` in future, weak HMAC secrets).

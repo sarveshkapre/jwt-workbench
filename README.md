@@ -43,6 +43,12 @@ Sign (HS256):
 python -m jwt_workbench sign --payload '{"sub":"user123","exp":1735689600}' --key-text "secret123"
 ```
 
+Sign (none / unsecured):
+
+```bash
+python -m jwt_workbench sign --payload '{"sub":"user123"}' --alg none
+```
+
 Convert PEM → JWK:
 
 ```bash

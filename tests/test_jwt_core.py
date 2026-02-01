@@ -159,3 +159,11 @@ def test_verify_aud_iss_with_leeway() -> None:
             issuer="my-iss",
             leeway=5,
         )
+
+
+def test_none_sign_decode() -> None:
+    payload = {"sub": "no-sig", "exp": int(time.time()) + 60}
+    token = sign_token(payload, key_path=None, key_text=None, alg="none", kid=None)
+    header, decoded = decode_token(token)
+    assert header["alg"] == "none"
+    assert decoded["sub"] == "no-sig"
