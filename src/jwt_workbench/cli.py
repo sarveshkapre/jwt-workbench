@@ -170,6 +170,19 @@ def _cmd_sample(args: argparse.Namespace) -> int:
 
 def _cmd_verify(args: argparse.Namespace) -> int:
     hmac_len = infer_hmac_key_len(args.key, args.key_text)
+    audience: str | list[str] | None
+    if not args.aud:
+        audience = None
+    else:
+        items: list[str] = []
+        for raw in args.aud:
+            items.extend([part.strip() for part in str(raw).split(",") if part.strip()])
+        if not items:
+            audience = None
+        elif len(items) == 1:
+            audience = items[0]
+        else:
+            audience = items
     header, payload = verify_token(
         token=args.token,
         key_path=args.key,
@@ -178,7 +191,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         jwks_path=args.jwks,
         kid=args.kid,
         alg=args.alg,
-        audience=args.aud,
+        audience=audience,
         issuer=args.iss,
         leeway=args.leeway,
     )
@@ -257,7 +270,11 @@ def main(argv: list[str] | None = None) -> int:
     p_verify.add_argument("--jwk", help="Path to JWK JSON file")
     p_verify.add_argument("--jwks", help="Path to JWKS JSON file")
     p_verify.add_argument("--kid", help="Key ID to select from JWKS")
-    p_verify.add_argument("--aud", help="Expected audience (enables aud claim verification)")
+    p_verify.add_argument(
+        "--aud",
+        action="append",
+        help="Expected audience (repeatable or comma-separated; enables aud claim verification)",
+    )
     p_verify.add_argument("--iss", help="Expected issuer (enables iss claim verification)")
     p_verify.add_argument(
         "--leeway",

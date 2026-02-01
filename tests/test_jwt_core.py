@@ -161,6 +161,25 @@ def test_verify_aud_iss_with_leeway() -> None:
         )
 
 
+def test_verify_audience_allowlist() -> None:
+    payload = {"aud": "a1", "exp": int(time.time()) + 60}
+    token = sign_token(payload, key_path=None, key_text="secret123", alg="HS256", kid=None)
+    header, verified = verify_token(
+        token=token,
+        key_path=None,
+        key_text="secret123",
+        jwk_path=None,
+        jwks_path=None,
+        kid=None,
+        alg="HS256",
+        audience=["a2", "a1"],
+        issuer=None,
+        leeway=0,
+    )
+    assert header["alg"] == "HS256"
+    assert verified["aud"] == "a1"
+
+
 def test_none_sign_decode() -> None:
     payload = {"sub": "no-sig", "exp": int(time.time()) + 60}
     token = sign_token(payload, key_path=None, key_text=None, alg="none", kid=None)

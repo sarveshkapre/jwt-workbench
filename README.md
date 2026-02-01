@@ -49,6 +49,12 @@ Verify with audience/issuer + clock skew:
 python -m jwt_workbench verify --token "$JWT" --key-text "secret123" --aud "my-aud" --iss "my-iss" --leeway 30
 ```
 
+Verify with multiple audiences:
+
+```bash
+python -m jwt_workbench verify --token "$JWT" --key-text "secret123" --aud "aud-1" --aud "aud-2"
+```
+
 Sign (HS256):
 
 ```bash

@@ -91,7 +91,7 @@ def verify_token_with_key(
     token: str,
     key: Any,
     alg: str | None,
-    audience: str | None = None,
+    audience: str | list[str] | None = None,
     issuer: str | None = None,
     leeway: int = 0,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -124,7 +124,7 @@ def verify_token(
     jwks_path: str | None,
     kid: str | None,
     alg: str | None,
-    audience: str | None = None,
+    audience: str | list[str] | None = None,
     issuer: str | None = None,
     leeway: int = 0,
 ) -> tuple[dict[str, Any], dict[str, Any]]:

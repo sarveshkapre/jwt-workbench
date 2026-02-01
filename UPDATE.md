@@ -12,6 +12,7 @@
 - Web UI adds offline sample presets to load demo tokens/keys quickly.
 - CLI adds `inspect` for decode + warnings in one command.
 - CLI adds `sample` for generating demo tokens/keys offline.
+- Verification supports multiple expected audiences for `aud` (CLI repeatable; web comma-separated).
 - Added support for generating unsecured `alg=none` tokens (CLI + web UI) without requiring a key.
 
 ### How to verify

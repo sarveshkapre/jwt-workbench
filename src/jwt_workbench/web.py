@@ -359,6 +359,12 @@ const verify = async () => {
   if (!Number.isFinite(leeway) || leeway < 0) {
     throw new Error('Clock skew must be a non-negative integer');
   }
+  const audRaw = (audEl.value || '').trim();
+  let aud = null;
+  if (audRaw) {
+    const parts = audRaw.split(',').map((p) => p.trim()).filter((p) => p.length > 0);
+    aud = parts.length <= 1 ? audRaw : parts;
+  }
 
   const data = await request('/api/verify', {
     token,
@@ -366,7 +372,7 @@ const verify = async () => {
     key_type: keyTypeEl.value,
     key_text: keyEl.value,
     kid: kidEl.value || null,
-    aud: (audEl.value || '').trim() || null,
+    aud,
     iss: (issEl.value || '').trim() || null,
     leeway,
   });
@@ -1118,8 +1124,17 @@ class JWTWorkbenchHandler(BaseHTTPRequestHandler):
                     alg = header.get("alg")
                 if not alg:
                     raise ValueError("missing alg in header; supply alg")
-                if aud is not None and not isinstance(aud, str):
-                    raise ValueError("aud must be a string")
+                if aud is not None and not isinstance(aud, (str, list)):
+                    raise ValueError("aud must be a string or list of strings")
+                if isinstance(aud, list):
+                    if not aud:
+                        aud = None
+                    elif not all(isinstance(item, str) for item in aud):
+                        raise ValueError("aud must be a string or list of strings")
+                    else:
+                        aud = [item for item in aud if item.strip()]
+                        if not aud:
+                            aud = None
                 if iss is not None and not isinstance(iss, str):
                     raise ValueError("iss must be a string")
                 if kid is not None and not isinstance(kid, str):
