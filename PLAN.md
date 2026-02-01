@@ -21,6 +21,7 @@ JWT Workbench is an offline jwt.io-style CLI + web UI to decode, verify, and sig
 - Sign HS256/RS256 tokens from JSON payload (CLI + web).
 - Convert PEM ↔︎ JWK/JWKS (CLI + web).
 - CLI: clean error messages and exit codes (no tracebacks) for invalid tokens/keys.
+- CLI: accept tokens from stdin via `--token -`.
 - Footgun warnings (`alg=none`, missing/invalid `exp`, expired/near-expiry, missing `aud`/`iss`, `nbf`/`iat` in future, weak HMAC secrets).
 
 ## Next

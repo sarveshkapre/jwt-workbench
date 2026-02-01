@@ -48,3 +48,24 @@ def test_verify_invalid_token_is_clean_error() -> None:
     )
     assert proc.returncode != 0
     assert "error:" in proc.stderr.lower()
+
+
+def test_decode_reads_token_from_stdin() -> None:
+    sample = subprocess.run(
+        [sys.executable, "-m", "jwt_workbench", "sample", "--kind", "none"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert sample.returncode == 0
+    token = json.loads(sample.stdout)["token"]
+    proc = subprocess.run(
+        [sys.executable, "-m", "jwt_workbench", "decode", "--token", "-"],
+        check=False,
+        input=token,
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0
+    decoded = json.loads(proc.stdout)
+    assert decoded["header"]["alg"] == "none"

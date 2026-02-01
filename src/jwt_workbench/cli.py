@@ -45,6 +45,15 @@ def _print_json(obj: object) -> None:
     print(json.dumps(obj, indent=2, sort_keys=True))
 
 
+def _load_token(token_arg: str) -> str:
+    if token_arg != "-":
+        return token_arg
+    token = sys.stdin.read().strip()
+    if not token:
+        raise ValueError("stdin is empty; expected JWT")
+    return token
+
+
 def _emit_warnings(
     payload: dict[str, Any],
     header: dict[str, Any],
@@ -58,14 +67,14 @@ def _emit_warnings(
 
 
 def _cmd_decode(args: argparse.Namespace) -> int:
-    header, payload = decode_token(args.token)
+    header, payload = decode_token(_load_token(args.token))
     _emit_warnings(payload, header)
     _print_json({"header": header, "payload": payload})
     return 0
 
 
 def _cmd_inspect(args: argparse.Namespace) -> int:
-    header, payload = decode_token(args.token)
+    header, payload = decode_token(_load_token(args.token))
     if not args.no_warnings:
         _emit_warnings(payload, header)
     _print_json({"header": header, "payload": payload, "warnings": analyze_claims(payload, header)})
@@ -185,7 +194,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         else:
             audience = items
     header, payload = verify_token(
-        token=args.token,
+        token=_load_token(args.token),
         key_path=args.key,
         key_text=args.key_text,
         jwk_path=args.jwk,
@@ -238,11 +247,11 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_decode = sub.add_parser("decode", help="Decode a JWT without verifying signature")
-    p_decode.add_argument("--token", required=True, help="JWT string")
+    p_decode.add_argument("--token", required=True, help="JWT string (use '-' to read from stdin)")
     p_decode.set_defaults(func=_cmd_decode)
 
     p_inspect = sub.add_parser("inspect", help="Decode + show warnings (like the web UI)")
-    p_inspect.add_argument("--token", required=True, help="JWT string")
+    p_inspect.add_argument("--token", required=True, help="JWT string (use '-' to read from stdin)")
     p_inspect.add_argument(
         "--no-warnings", action="store_true", help="Do not print warnings to stderr"
     )
@@ -264,7 +273,7 @@ def main(argv: list[str] | None = None) -> int:
     p_sample.set_defaults(func=_cmd_sample)
 
     p_verify = sub.add_parser("verify", help="Verify a JWT signature and claims")
-    p_verify.add_argument("--token", required=True, help="JWT string")
+    p_verify.add_argument("--token", required=True, help="JWT string (use '-' to read from stdin)")
     p_verify.add_argument("--alg", help="Override algorithm (e.g. HS256, RS256)")
     p_verify.add_argument("--key", help="Path to secret or PEM key")
     p_verify.add_argument("--key-text", help="Raw secret string (HS256)")

@@ -25,6 +25,12 @@ Decode:
 python -m jwt_workbench decode --token "$JWT"
 ```
 
+Decode from stdin:
+
+```bash
+echo "$JWT" | python -m jwt_workbench decode --token -
+```
+
 Inspect (decode + warnings):
 
 ```bash
