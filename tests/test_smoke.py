@@ -26,3 +26,25 @@ def test_sample_none_outputs_json() -> None:
     data = json.loads(proc.stdout)
     assert data["alg"] == "none"
     assert isinstance(data["token"], str)
+
+
+def test_verify_invalid_token_is_clean_error() -> None:
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "jwt_workbench",
+            "verify",
+            "--token",
+            "not-a-jwt",
+            "--key-text",
+            "secret123",
+            "--alg",
+            "HS256",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode != 0
+    assert "error:" in proc.stderr.lower()

@@ -13,6 +13,7 @@
 - CLI: add `inspect` command to decode and include warnings in output.
 - CLI: add `sample` command to generate demo tokens/keys offline.
 - Verification: allow multiple expected audiences for `aud` (CLI + web).
+- CLI: handle invalid tokens/keys with clean `error:` messages and non-zero exit codes (no tracebacks).
 - Support generating unsecured `alg=none` tokens (CLI + web) without requiring key material.
 
 ## v0.1.0 - 2026-01-31

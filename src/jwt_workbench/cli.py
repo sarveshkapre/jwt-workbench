@@ -9,6 +9,7 @@ from typing import Any
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from jwt import exceptions as jwt_exceptions
 
 from .core import (
     analyze_claims,
@@ -309,7 +310,13 @@ def main(argv: list[str] | None = None) -> int:
     p_serve.set_defaults(func=_cmd_serve)
 
     args = parser.parse_args(argv)
-    return int(args.func(args))
+    try:
+        return int(args.func(args))
+    except KeyboardInterrupt:
+        return 130
+    except (ValueError, jwt_exceptions.PyJWTError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":
