@@ -49,6 +49,12 @@ Verify (HS256):
 python -m jwt_workbench verify --token "$JWT" --key-text "secret123"
 ```
 
+Verify with key from stdin:
+
+```bash
+python -m jwt_workbench verify --token "$JWT" --alg RS256 --key-text - < public.pem
+```
+
 Verify with audience/issuer + clock skew:
 
 ```bash

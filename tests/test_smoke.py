@@ -69,3 +69,35 @@ def test_decode_reads_token_from_stdin() -> None:
     assert proc.returncode == 0
     decoded = json.loads(proc.stdout)
     assert decoded["header"]["alg"] == "none"
+
+
+def test_verify_reads_key_from_stdin() -> None:
+    sample = subprocess.run(
+        [sys.executable, "-m", "jwt_workbench", "sample", "--kind", "rs256-pem"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert sample.returncode == 0
+    data = json.loads(sample.stdout)
+    token = data["token"]
+    key_text = data["verify_key"]["key_text"]
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "jwt_workbench",
+            "verify",
+            "--token",
+            token,
+            "--alg",
+            "RS256",
+            "--key-text",
+            "-",
+        ],
+        check=False,
+        input=key_text,
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0

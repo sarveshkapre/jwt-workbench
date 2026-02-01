@@ -54,6 +54,15 @@ def _load_token(token_arg: str) -> str:
     return token
 
 
+def _load_text(text_arg: str, label: str) -> str:
+    if text_arg != "-":
+        return text_arg
+    text = sys.stdin.read()
+    if not text.strip():
+        raise ValueError(f"stdin is empty; expected {label}")
+    return text
+
+
 def _emit_warnings(
     payload: dict[str, Any],
     header: dict[str, Any],
@@ -179,7 +188,16 @@ def _cmd_sample(args: argparse.Namespace) -> int:
 
 
 def _cmd_verify(args: argparse.Namespace) -> int:
-    hmac_len = infer_hmac_key_len(args.key, args.key_text)
+    if args.token == "-" and args.key_text == "-":
+        raise ValueError("cannot read both token and key from stdin; provide one normally")
+
+    key_text: str | None
+    if args.key_text is None:
+        key_text = None
+    else:
+        key_text = _load_text(args.key_text, "key material")
+
+    hmac_len = infer_hmac_key_len(args.key, key_text)
     audience: str | list[str] | None
     if not args.aud:
         audience = None
@@ -196,7 +214,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     header, payload = verify_token(
         token=_load_token(args.token),
         key_path=args.key,
-        key_text=args.key_text,
+        key_text=key_text,
         jwk_path=args.jwk,
         jwks_path=args.jwks,
         kid=args.kid,
@@ -212,10 +230,13 @@ def _cmd_verify(args: argparse.Namespace) -> int:
 
 def _cmd_sign(args: argparse.Namespace) -> int:
     payload = _load_payload(args)
+    key_text: str | None = args.key_text
+    if args.alg != "none" and args.key_text == "-":
+        key_text = _load_text(args.key_text, "key material")
     token = sign_token(
         payload=payload,
         key_path=args.key,
-        key_text=args.key_text,
+        key_text=key_text,
         alg=args.alg,
         kid=args.kid,
     )
@@ -276,7 +297,10 @@ def main(argv: list[str] | None = None) -> int:
     p_verify.add_argument("--token", required=True, help="JWT string (use '-' to read from stdin)")
     p_verify.add_argument("--alg", help="Override algorithm (e.g. HS256, RS256)")
     p_verify.add_argument("--key", help="Path to secret or PEM key")
-    p_verify.add_argument("--key-text", help="Raw secret string (HS256)")
+    p_verify.add_argument(
+        "--key-text",
+        help="Raw secret/key text (use '-' to read from stdin; HS256 or PEM as needed)",
+    )
     p_verify.add_argument("--jwk", help="Path to JWK JSON file")
     p_verify.add_argument("--jwks", help="Path to JWKS JSON file")
     p_verify.add_argument("--kid", help="Key ID to select from JWKS")
@@ -299,7 +323,10 @@ def main(argv: list[str] | None = None) -> int:
     p_sign.add_argument("--payload-file", help="Path to JSON payload file")
     p_sign.add_argument("--alg", default="HS256", help="Algorithm (HS256, RS256, or none)")
     p_sign.add_argument("--key", help="Path to secret or PEM private key (not used for alg=none)")
-    p_sign.add_argument("--key-text", help="Raw secret string (HS256) (not used for alg=none)")
+    p_sign.add_argument(
+        "--key-text",
+        help="Raw secret/key text (use '-' to read from stdin) (not used for alg=none)",
+    )
     p_sign.add_argument("--kid", help="Optional key id")
     p_sign.set_defaults(func=_cmd_sign)
 
