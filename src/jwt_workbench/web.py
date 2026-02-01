@@ -147,6 +147,10 @@ _INDEX_HTML = """
         ></textarea>
         <label for="kid">Key ID (kid)</label>
         <input id="kid" placeholder="Optional kid for JWKS" spellcheck="false" autocapitalize="off" />
+        <div id="jwksPicker" class="jwks-picker" hidden>
+          <label for="kidSelect">JWKS keys</label>
+          <select id="kidSelect"></select>
+        </div>
         <div class="toolbar secondary">
           <button id="convertJwk" class="ghost" type="button">Convert PEM → JWK</button>
           <button id="convertJwks" class="ghost" type="button">Convert PEM → JWKS</button>
@@ -199,6 +203,8 @@ const formatPayloadEl = document.getElementById('formatPayload');
 const formatKeyEl = document.getElementById('formatKey');
 const convertJwkEl = document.getElementById('convertJwk');
 const convertJwksEl = document.getElementById('convertJwks');
+const jwksPickerEl = document.getElementById('jwksPicker');
+const kidSelectEl = document.getElementById('kidSelect');
 
   const actionButtonIds = [
     'decode',
@@ -455,11 +461,67 @@ copyTokenEl.addEventListener('click', async () => {
       keyEl.placeholder = 'Paste secret or key material';
       kidEl.placeholder = 'Optional kid for JWKS';
     }
+
+    jwksPickerEl.hidden = noneAlg || keyType !== 'jwks';
   };
 
   algEl.addEventListener('change', updateKeyUi);
   keyTypeEl.addEventListener('change', updateKeyUi);
   updateKeyUi();
+
+  const updateJwksPicker = () => {
+    if (jwksPickerEl.hidden) {
+      return;
+    }
+    kidSelectEl.innerHTML = '';
+
+    let jwks;
+    try {
+      jwks = JSON.parse(keyEl.value);
+    } catch (err) {
+      kidSelectEl.disabled = true;
+      return;
+    }
+
+    const keys = jwks && typeof jwks === 'object' ? jwks.keys : null;
+    if (!Array.isArray(keys) || keys.length === 0) {
+      kidSelectEl.disabled = true;
+      return;
+    }
+
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = keys.length === 1 ? 'Single key' : 'Select kid…';
+    kidSelectEl.appendChild(placeholder);
+
+    keys.forEach((key, index) => {
+      const option = document.createElement('option');
+      const kid = key && typeof key === 'object' ? key.kid : null;
+      if (typeof kid === 'string' && kid.trim()) {
+        option.value = kid;
+        option.textContent = kid;
+      } else {
+        option.value = '';
+        option.textContent = `Key ${index + 1} (no kid)`;
+        option.disabled = true;
+      }
+      kidSelectEl.appendChild(option);
+    });
+
+    kidSelectEl.disabled = keys.length <= 1;
+  };
+
+  keyEl.addEventListener('input', updateJwksPicker);
+  keyTypeEl.addEventListener('change', updateJwksPicker);
+  updateJwksPicker();
+
+  kidSelectEl.addEventListener('change', () => {
+    const selected = kidSelectEl.value;
+    if (!selected) {
+      return;
+    }
+    kidEl.value = selected;
+  });
 
   formatHeaderEl.addEventListener('click', async () => {
     await runAction(async () => {
@@ -743,6 +805,12 @@ button.ghost {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.jwks-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .toolbar.secondary {

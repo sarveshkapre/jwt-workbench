@@ -7,6 +7,7 @@
 - Web UI adds copy-to-clipboard buttons (JWT + JWK/JWKS output), keyboard shortcuts (Ctrl/Cmd+Enter verify, Ctrl/Cmd+Shift+Enter sign), and light/dark theme support.
 - Web UI adds JSON format buttons for header/payload and validates JSON before signing.
 - Web UI adds JSON formatting for JWK/JWKS key material, and the web API returns consistent JSON errors for JWT failures.
+- Web UI adds a JWKS `kid` picker dropdown when a JWKS contains multiple keys.
 - Added support for generating unsecured `alg=none` tokens (CLI + web UI) without requiring a key.
 
 ### How to verify
@@ -25,6 +26,7 @@ Then open `http://127.0.0.1:8000` and try:
 - Try `Format` for header/payload and confirm invalid JSON is caught before signing.
 - Select `none (unsigned)` and confirm `Sign` works with no key.
 - Set `Key type` to `JWK` or `JWKS`, paste JSON, and use `Format`.
+- Set `Key type` to `JWKS`, paste a multi-key JWKS, and use the `JWKS keys` dropdown to fill `kid`.
 
 ### Notes
 
