@@ -59,6 +59,7 @@ _INDEX_HTML = """
           <button id="verify" type="button">Verify</button>
           <button id="sign" type="button">Sign</button>
           <button id="copyToken" class="ghost" type="button" aria-label="Copy JWT">Copy</button>
+          <button id="clearAll" class="ghost" type="button" aria-label="Clear all fields">Clear</button>
         </div>
         <div class="row">
           <label for="alg">Algorithm</label>
@@ -196,8 +197,8 @@ const jwkOutputEl = document.getElementById('jwkOutput');
 const audEl = document.getElementById('aud');
 const issEl = document.getElementById('iss');
 const leewayEl = document.getElementById('leeway');
-  const copyTokenEl = document.getElementById('copyToken');
-  const copyJwkOutputEl = document.getElementById('copyJwkOutput');
+const copyTokenEl = document.getElementById('copyToken');
+const copyJwkOutputEl = document.getElementById('copyJwkOutput');
 const formatHeaderEl = document.getElementById('formatHeader');
 const formatPayloadEl = document.getElementById('formatPayload');
 const formatKeyEl = document.getElementById('formatKey');
@@ -205,12 +206,14 @@ const convertJwkEl = document.getElementById('convertJwk');
 const convertJwksEl = document.getElementById('convertJwks');
 const jwksPickerEl = document.getElementById('jwksPicker');
 const kidSelectEl = document.getElementById('kidSelect');
+const clearAllEl = document.getElementById('clearAll');
 
   const actionButtonIds = [
     'decode',
     'verify',
     'sign',
     'copyToken',
+    'clearAll',
     'convertJwk',
     'convertJwks',
     'copyJwkOutput',
@@ -438,12 +441,30 @@ copyTokenEl.addEventListener('click', async () => {
   });
 });
 
-  copyJwkOutputEl.addEventListener('click', async () => {
-    await runAction(async () => {
-      await copyText(jwkOutputEl.value);
-      setStatus('Copied output', 'ok');
-    });
+clearAllEl.addEventListener('click', async () => {
+  await runAction(async () => {
+    tokenEl.value = '';
+    headerEl.value = '';
+    payloadEl.value = '';
+    keyEl.value = '';
+    kidEl.value = '';
+    jwkOutputEl.value = '';
+    audEl.value = '';
+    issEl.value = '';
+    leewayEl.value = '';
+    setWarnings([]);
+    setStatus('Cleared', 'ok');
+    updateKeyUi();
+    updateJwksPicker();
   });
+});
+
+copyJwkOutputEl.addEventListener('click', async () => {
+  await runAction(async () => {
+    await copyText(jwkOutputEl.value);
+    setStatus('Copied output', 'ok');
+  });
+});
 
   const updateKeyUi = () => {
     const noneAlg = algEl.value === 'none';
