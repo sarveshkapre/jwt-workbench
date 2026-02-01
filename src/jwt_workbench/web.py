@@ -5,6 +5,8 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
+from jwt import exceptions as jwt_exceptions
+
 from .core import (
     analyze_claims,
     decode_token,
@@ -131,7 +133,12 @@ _INDEX_HTML = """
             <option value="jwks">JWKS</option>
           </select>
         </div>
-        <label for="key">Key material</label>
+        <div class="output-header">
+          <label for="key">Key material</label>
+          <button id="formatKey" class="ghost" type="button" aria-label="Format key JSON">
+            Format
+          </button>
+        </div>
         <textarea
           id="key"
           placeholder="Paste secret or key material"
@@ -187,10 +194,11 @@ const issEl = document.getElementById('iss');
 const leewayEl = document.getElementById('leeway');
   const copyTokenEl = document.getElementById('copyToken');
   const copyJwkOutputEl = document.getElementById('copyJwkOutput');
-  const formatHeaderEl = document.getElementById('formatHeader');
-  const formatPayloadEl = document.getElementById('formatPayload');
-  const convertJwkEl = document.getElementById('convertJwk');
-  const convertJwksEl = document.getElementById('convertJwks');
+const formatHeaderEl = document.getElementById('formatHeader');
+const formatPayloadEl = document.getElementById('formatPayload');
+const formatKeyEl = document.getElementById('formatKey');
+const convertJwkEl = document.getElementById('convertJwk');
+const convertJwksEl = document.getElementById('convertJwks');
 
   const actionButtonIds = [
     'decode',
@@ -202,6 +210,7 @@ const leewayEl = document.getElementById('leeway');
     'copyJwkOutput',
     'formatHeader',
     'formatPayload',
+    'formatKey',
   ];
   const actionButtons = actionButtonIds
     .map((id) => document.getElementById(id))
@@ -432,11 +441,13 @@ copyTokenEl.addEventListener('click', async () => {
 
   const updateKeyUi = () => {
     const noneAlg = algEl.value === 'none';
+    const keyType = keyTypeEl.value;
     keyTypeEl.disabled = noneAlg;
     keyEl.disabled = noneAlg;
     kidEl.disabled = noneAlg;
     convertJwkEl.disabled = noneAlg;
     convertJwksEl.disabled = noneAlg;
+    formatKeyEl.disabled = noneAlg || (keyType !== 'jwk' && keyType !== 'jwks');
     if (noneAlg) {
       keyEl.placeholder = 'No key required for alg=none';
       kidEl.placeholder = 'Not used for alg=none';
@@ -447,6 +458,7 @@ copyTokenEl.addEventListener('click', async () => {
   };
 
   algEl.addEventListener('change', updateKeyUi);
+  keyTypeEl.addEventListener('change', updateKeyUi);
   updateKeyUi();
 
   formatHeaderEl.addEventListener('click', async () => {
@@ -456,12 +468,19 @@ copyTokenEl.addEventListener('click', async () => {
   });
 });
 
-formatPayloadEl.addEventListener('click', async () => {
-  await runAction(async () => {
-    formatJsonTextarea(payloadEl, 'Payload');
-    setStatus('Formatted payload', 'ok');
+  formatPayloadEl.addEventListener('click', async () => {
+    await runAction(async () => {
+      formatJsonTextarea(payloadEl, 'Payload');
+      setStatus('Formatted payload', 'ok');
+    });
   });
-});
+
+  formatKeyEl.addEventListener('click', async () => {
+    await runAction(async () => {
+      formatJsonTextarea(keyEl, 'Key');
+      setStatus('Formatted key JSON', 'ok');
+    });
+  });
 
 document.addEventListener('keydown', async (event) => {
   const cmdOrCtrl = event.metaKey || event.ctrlKey;
@@ -823,6 +842,8 @@ class JWTWorkbenchHandler(BaseHTTPRequestHandler):
                     raise ValueError("aud must be a string")
                 if iss is not None and not isinstance(iss, str):
                     raise ValueError("iss must be a string")
+                if kid is not None and not isinstance(kid, str):
+                    raise ValueError("kid must be a string")
                 if not isinstance(leeway, int) or leeway < 0:
                     raise ValueError("leeway must be a non-negative integer")
                 key = load_key_from_material(key_text, str(alg), key_type, kid=kid)
@@ -897,6 +918,14 @@ class JWTWorkbenchHandler(BaseHTTPRequestHandler):
             self.send_error(HTTPStatus.NOT_FOUND, "Not found")
         except ValueError as exc:
             self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+        except jwt_exceptions.PyJWTError as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+        except Exception as exc:
+            self.log_error("Unhandled error: %r", exc)
+            self._send_json(
+                {"error": "internal server error"},
+                status=HTTPStatus.INTERNAL_SERVER_ERROR,
+            )
 
 
 def serve(host: str = "127.0.0.1", port: int = 8000) -> None:
