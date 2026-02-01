@@ -11,6 +11,7 @@
 - Web UI: clear button to wipe token/key fields.
 - Web UI: sample presets to load demo tokens/keys offline.
 - CLI: add `inspect` command to decode and include warnings in output.
+- CLI: add `sample` command to generate demo tokens/keys offline.
 - Support generating unsecured `alg=none` tokens (CLI + web) without requiring key material.
 
 ## v0.1.0 - 2026-01-31

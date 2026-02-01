@@ -31,6 +31,12 @@ Inspect (decode + warnings):
 python -m jwt_workbench inspect --token "$JWT"
 ```
 
+Generate a local sample (token + key material):
+
+```bash
+python -m jwt_workbench sample --kind hs256
+```
+
 Verify (HS256):
 
 ```bash

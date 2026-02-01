@@ -11,6 +11,7 @@
 - Web UI adds a one-click clear button to wipe sensitive fields.
 - Web UI adds offline sample presets to load demo tokens/keys quickly.
 - CLI adds `inspect` for decode + warnings in one command.
+- CLI adds `sample` for generating demo tokens/keys offline.
 - Added support for generating unsecured `alg=none` tokens (CLI + web UI) without requiring a key.
 
 ### How to verify
@@ -33,6 +34,7 @@ Then open `http://127.0.0.1:8000` and try:
 - Use `Clear` to wipe token/key fields after working with secrets.
 - Use the `Sample preset` picker + `Load` to populate demo tokens/keys entirely offline.
 - Try `python -m jwt_workbench inspect --token "$JWT"` to print header/payload + `warnings`.
+- Try `python -m jwt_workbench sample --kind rs256-jwks` to generate a token plus a multi-key JWKS (exercise `kid` selection).
 
 ### Notes
 

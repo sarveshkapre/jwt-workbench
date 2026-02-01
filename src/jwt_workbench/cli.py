@@ -3,8 +3,12 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 from typing import Any
+
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 
 from .core import (
     analyze_claims,
@@ -64,6 +68,103 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
     if not args.no_warnings:
         _emit_warnings(payload, header)
     _print_json({"header": header, "payload": payload, "warnings": analyze_claims(payload, header)})
+    return 0
+
+
+def _cmd_sample(args: argparse.Namespace) -> int:
+    now = int(time.time())
+    payload: dict[str, Any] = {
+        "sub": "demo-user",
+        "aud": "demo-aud",
+        "iss": "demo-iss",
+        "iat": now,
+        "exp": now + int(args.exp_seconds),
+    }
+
+    kind = str(args.kind)
+    if kind == "none":
+        token = sign_token(payload, key_path=None, key_text=None, alg="none", kid=None)
+        header, decoded = decode_token(token)
+        _print_json(
+            {
+                "kind": kind,
+                "alg": "none",
+                "token": token,
+                "header": header,
+                "payload": decoded,
+                "warnings": analyze_claims(decoded, header),
+            }
+        )
+        return 0
+
+    if kind == "hs256":
+        secret = "demo-secret-please-change"
+        token = sign_token(payload, key_path=None, key_text=secret, alg="HS256", kid=None)
+        header, decoded = decode_token(token)
+        _print_json(
+            {
+                "kind": kind,
+                "alg": "HS256",
+                "token": token,
+                "header": header,
+                "payload": decoded,
+                "warnings": analyze_claims(
+                    decoded, header, hmac_key_len=len(secret.encode("utf-8"))
+                ),
+                "verify_key": {"key_type": "secret", "key_text": secret},
+            }
+        )
+        return 0
+
+    if kind not in {"rs256-pem", "rs256-jwks"}:
+        raise SystemExit(f"unknown sample kind: {kind}")
+
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    private_pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode("utf-8")
+    public_pem = (
+        private_key.public_key()
+        .public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        .decode("utf-8")
+    )
+
+    token = sign_token(payload, key_path=None, key_text=private_pem, alg="RS256", kid="demo-k1")
+    header, decoded = decode_token(token)
+    base: dict[str, Any] = {
+        "kind": kind,
+        "alg": "RS256",
+        "token": token,
+        "header": header,
+        "payload": decoded,
+        "warnings": analyze_claims(decoded, header),
+        "kid": "demo-k1",
+        "verify_key": {"key_type": "pem", "key_text": public_pem},
+        "sign_key": {"key_type": "pem", "key_text": private_pem},
+    }
+
+    if kind == "rs256-pem":
+        _print_json(base)
+        return 0
+
+    jwk1 = jwk_from_pem(public_pem, kid="demo-k1")
+    other_private = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    other_public_pem = (
+        other_private.public_key()
+        .public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        .decode("utf-8")
+    )
+    jwk2 = jwk_from_pem(other_public_pem, kid="demo-k2")
+    base["jwks"] = {"keys": [jwk1, jwk2]}
+    _print_json(base)
     return 0
 
 
@@ -132,6 +233,21 @@ def main(argv: list[str] | None = None) -> int:
         "--no-warnings", action="store_true", help="Do not print warnings to stderr"
     )
     p_inspect.set_defaults(func=_cmd_inspect)
+
+    p_sample = sub.add_parser("sample", help="Generate offline demo tokens/keys (no network)")
+    p_sample.add_argument(
+        "--kind",
+        choices=["hs256", "rs256-pem", "rs256-jwks", "none"],
+        default="hs256",
+        help="Sample kind (default: hs256)",
+    )
+    p_sample.add_argument(
+        "--exp-seconds",
+        type=int,
+        default=3600,
+        help="Expiration seconds from now (default: 3600)",
+    )
+    p_sample.set_defaults(func=_cmd_sample)
 
     p_verify = sub.add_parser("verify", help="Verify a JWT signature and claims")
     p_verify.add_argument("--token", required=True, help="JWT string")
