@@ -41,6 +41,20 @@ def _load_payload(args: argparse.Namespace) -> dict[str, Any]:
     raise SystemExit("missing payload: use --payload or --payload-file")
 
 
+def _load_headers(args: argparse.Namespace) -> dict[str, Any] | None:
+    if args.headers and args.headers_file:
+        raise SystemExit("use only one of --headers or --headers-file")
+    if args.headers_file:
+        obj = json.loads(Path(args.headers_file).read_text(encoding="utf-8"))
+        headers = _ensure_dict(obj, "headers")
+    elif args.headers:
+        obj = json.loads(args.headers)
+        headers = _ensure_dict(obj, "headers")
+    else:
+        return None
+    return {k: v for k, v in headers.items() if k not in {"alg", "kid"}}
+
+
 def _print_json(obj: object) -> None:
     print(json.dumps(obj, indent=2, sort_keys=True))
 
@@ -239,6 +253,7 @@ def _cmd_sign(args: argparse.Namespace) -> int:
         key_text=key_text,
         alg=args.alg,
         kid=args.kid,
+        headers=_load_headers(args),
     )
     print(token)
     return 0
@@ -321,6 +336,8 @@ def main(argv: list[str] | None = None) -> int:
     p_sign = sub.add_parser("sign", help="Sign a JWT")
     p_sign.add_argument("--payload", help="JSON payload string")
     p_sign.add_argument("--payload-file", help="Path to JSON payload file")
+    p_sign.add_argument("--headers", help="JSON header object (optional)")
+    p_sign.add_argument("--headers-file", help="Path to JSON header file (optional)")
     p_sign.add_argument("--alg", default="HS256", help="Algorithm (HS256, RS256, or none)")
     p_sign.add_argument("--key", help="Path to secret or PEM private key (not used for alg=none)")
     p_sign.add_argument(

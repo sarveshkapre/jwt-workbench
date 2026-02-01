@@ -73,6 +73,12 @@ Sign (HS256):
 python -m jwt_workbench sign --payload '{"sub":"user123","exp":1735689600}' --key-text "secret123"
 ```
 
+Sign with extra headers:
+
+```bash
+python -m jwt_workbench sign --payload '{"sub":"user123"}' --alg none --headers '{"typ":"JWT","foo":"bar"}'
+```
+
 Sign (none / unsecured):
 
 ```bash

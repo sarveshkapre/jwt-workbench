@@ -101,3 +101,35 @@ def test_verify_reads_key_from_stdin() -> None:
         text=True,
     )
     assert proc.returncode == 0
+
+
+def test_sign_accepts_headers() -> None:
+    signed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "jwt_workbench",
+            "sign",
+            "--alg",
+            "none",
+            "--payload",
+            '{"sub":"x"}',
+            "--headers",
+            '{"foo":"bar"}',
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert signed.returncode == 0
+    token = signed.stdout.strip()
+
+    decoded = subprocess.run(
+        [sys.executable, "-m", "jwt_workbench", "decode", "--token", token],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert decoded.returncode == 0
+    header = json.loads(decoded.stdout)["header"]
+    assert header["foo"] == "bar"

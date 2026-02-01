@@ -16,6 +16,7 @@
 - CLI: handle invalid tokens/keys with clean `error:` messages and non-zero exit codes (no tracebacks).
 - CLI: allow `--token -` to read JWTs from stdin (decode/inspect/verify).
 - CLI: allow `--key-text -` to read key material from stdin (verify/sign).
+- CLI: allow setting custom JWT headers when signing (`--headers` / `--headers-file`).
 - Support generating unsecured `alg=none` tokens (CLI + web) without requiring key material.
 
 ## v0.1.0 - 2026-01-31
