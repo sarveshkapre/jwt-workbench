@@ -67,6 +67,46 @@ def _select_jwks_key(jwks: dict[str, Any], kid: str | None) -> Any:
     raise ValueError("JWKS has multiple keys; provide --kid")
 
 
+def load_key_from_material(key_text: str, alg: str, kind: str, kid: str | None = None) -> Any:
+    if kind == "secret":
+        return _load_key_from_text(key_text, alg)
+    if kind == "pem":
+        if _looks_like_json(key_text):
+            raise ValueError("expected PEM text, got JSON")
+        return _load_key_from_text(key_text, alg)
+    if kind == "jwk":
+        obj = json.loads(key_text)
+        if obj.get("kty") != "RSA":
+            raise ValueError("only RSA JWK is supported")
+        if "keys" in obj:
+            raise ValueError("use jwks for multiple keys")
+        return algorithms.RSAAlgorithm.from_jwk(json.dumps(obj))
+    if kind == "jwks":
+        obj = json.loads(key_text)
+        return _select_jwks_key(obj, kid)
+    raise ValueError(f"unknown key kind: {kind}")
+
+
+def verify_token_with_key(
+    token: str,
+    key: Any,
+    alg: str | None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    header = jwt.get_unverified_header(token)
+    alg = alg or header.get("alg")
+    if not alg:
+        raise ValueError("missing alg in header; supply alg")
+    if alg == "none":
+        raise ValueError("refusing to verify alg=none")
+    payload = jwt.decode(
+        token,
+        key=key,
+        algorithms=[alg],
+        options={"verify_aud": False, "verify_iss": False},
+    )
+    return header, payload
+
+
 def verify_token(
     token: str,
     key_path: str | None,
@@ -112,6 +152,7 @@ def sign_token(
     key_text: str | None,
     alg: str,
     kid: str | None,
+    headers: dict[str, Any] | None = None,
 ) -> str:
     key: Any
     if key_path:
@@ -121,8 +162,12 @@ def sign_token(
     else:
         raise ValueError("missing key material; provide --key or --key-text")
 
-    headers = {"kid": kid} if kid else None
-    return jwt.encode(payload, key=key, algorithm=alg, headers=headers)
+    merged_headers: dict[str, Any] = {}
+    if headers:
+        merged_headers.update(headers)
+    if kid:
+        merged_headers["kid"] = kid
+    return jwt.encode(payload, key=key, algorithm=alg, headers=merged_headers or None)
 
 
 def jwk_from_pem(pem_text: str, kid: str | None = None) -> dict[str, Any]:

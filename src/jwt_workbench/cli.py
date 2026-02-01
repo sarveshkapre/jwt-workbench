@@ -15,6 +15,7 @@ from .core import (
     sign_token,
     verify_token,
 )
+from .web import serve
 
 
 def _ensure_dict(obj: Any, context: str) -> dict[str, Any]:
@@ -99,6 +100,11 @@ def _cmd_jwks(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_serve(args: argparse.Namespace) -> int:
+    serve(host=args.host, port=args.port)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="jwt-workbench")
     parser.add_argument("--version", action="version", version="0.1.0")
@@ -137,6 +143,11 @@ def main(argv: list[str] | None = None) -> int:
     p_jwks.add_argument("--pem", required=True, help="Path to PEM public key")
     p_jwks.add_argument("--kid", help="Optional key id")
     p_jwks.set_defaults(func=_cmd_jwks)
+
+    p_serve = sub.add_parser("serve", help="Launch the jwt.io-style web UI")
+    p_serve.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
+    p_serve.add_argument("--port", type=int, default=8000, help="Bind port (default: 8000)")
+    p_serve.set_defaults(func=_cmd_serve)
 
     args = parser.parse_args(argv)
     return int(args.func(args))
