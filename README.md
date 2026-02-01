@@ -25,6 +25,12 @@ Decode:
 python -m jwt_workbench decode --token "$JWT"
 ```
 
+Inspect (decode + warnings):
+
+```bash
+python -m jwt_workbench inspect --token "$JWT"
+```
+
 Verify (HS256):
 
 ```bash

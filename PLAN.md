@@ -5,6 +5,7 @@ JWT Workbench is an offline jwt.io-style CLI + web UI to decode, verify, and sig
 ## Shipped
 
 - Decode JWTs without verification (CLI + web).
+- CLI: `inspect` command to decode and emit warnings (json includes `warnings`).
 - Verify HS256/RS256 signatures with local secrets/PEM/JWK/JWKS inputs.
 - Optional `aud`/`iss` claim verification + clock-skew `leeway` for verification (CLI + web).
 - Web UI: copy buttons (JWT + JWK/JWKS output), keyboard shortcuts, and light/dark theme support.

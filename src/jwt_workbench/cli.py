@@ -59,6 +59,14 @@ def _cmd_decode(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_inspect(args: argparse.Namespace) -> int:
+    header, payload = decode_token(args.token)
+    if not args.no_warnings:
+        _emit_warnings(payload, header)
+    _print_json({"header": header, "payload": payload, "warnings": analyze_claims(payload, header)})
+    return 0
+
+
 def _cmd_verify(args: argparse.Namespace) -> int:
     hmac_len = infer_hmac_key_len(args.key, args.key_text)
     header, payload = verify_token(
@@ -117,6 +125,13 @@ def main(argv: list[str] | None = None) -> int:
     p_decode = sub.add_parser("decode", help="Decode a JWT without verifying signature")
     p_decode.add_argument("--token", required=True, help="JWT string")
     p_decode.set_defaults(func=_cmd_decode)
+
+    p_inspect = sub.add_parser("inspect", help="Decode + show warnings (like the web UI)")
+    p_inspect.add_argument("--token", required=True, help="JWT string")
+    p_inspect.add_argument(
+        "--no-warnings", action="store_true", help="Do not print warnings to stderr"
+    )
+    p_inspect.set_defaults(func=_cmd_inspect)
 
     p_verify = sub.add_parser("verify", help="Verify a JWT signature and claims")
     p_verify.add_argument("--token", required=True, help="JWT string")

@@ -10,6 +10,7 @@
 - Web UI adds a JWKS `kid` picker dropdown when a JWKS contains multiple keys.
 - Web UI adds a one-click clear button to wipe sensitive fields.
 - Web UI adds offline sample presets to load demo tokens/keys quickly.
+- CLI adds `inspect` for decode + warnings in one command.
 - Added support for generating unsecured `alg=none` tokens (CLI + web UI) without requiring a key.
 
 ### How to verify
@@ -31,6 +32,7 @@ Then open `http://127.0.0.1:8000` and try:
 - Set `Key type` to `JWKS`, paste a multi-key JWKS, and use the `JWKS keys` dropdown to fill `kid`.
 - Use `Clear` to wipe token/key fields after working with secrets.
 - Use the `Sample preset` picker + `Load` to populate demo tokens/keys entirely offline.
+- Try `python -m jwt_workbench inspect --token "$JWT"` to print header/payload + `warnings`.
 
 ### Notes
 
