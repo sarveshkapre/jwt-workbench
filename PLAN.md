@@ -13,6 +13,7 @@ JWT Workbench is an offline jwt.io-style CLI + web UI to decode, verify, and sig
 - Web API: more robust error handling (PyJWT errors returned as JSON 400; unexpected errors as JSON 500).
 - Web UI: JWKS key picker (dropdown) for selecting `kid` when a JWKS has multiple keys.
 - Web UI: one-click clear to wipe sensitive fields.
+- Web UI: sample presets (HS256 / RS256 / JWKS / none) for quick offline demos.
 - Signing: support generating unsecured `alg=none` tokens (CLI + web), without requiring key material.
 - Sign HS256/RS256 tokens from JSON payload (CLI + web).
 - Convert PEM ↔︎ JWK/JWKS (CLI + web).

@@ -9,6 +9,7 @@
 - Web API: return JSON errors for PyJWT failures and unexpected exceptions.
 - Web UI: JWKS `kid` picker when multiple keys are present.
 - Web UI: clear button to wipe token/key fields.
+- Web UI: sample presets to load demo tokens/keys offline.
 - Support generating unsecured `alg=none` tokens (CLI + web) without requiring key material.
 
 ## v0.1.0 - 2026-01-31

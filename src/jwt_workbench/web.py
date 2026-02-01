@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 from jwt import exceptions as jwt_exceptions
 
 from .core import (
@@ -53,14 +56,21 @@ _INDEX_HTML = """
           autocapitalize="off"
           autocomplete="off"
         ></textarea>
-        <p id="status" class="status" role="status" aria-live="polite"></p>
-        <div class="toolbar">
-          <button id="decode" type="button">Decode</button>
-          <button id="verify" type="button">Verify</button>
-          <button id="sign" type="button">Sign</button>
-          <button id="copyToken" class="ghost" type="button" aria-label="Copy JWT">Copy</button>
-          <button id="clearAll" class="ghost" type="button" aria-label="Clear all fields">Clear</button>
-        </div>
+	        <p id="status" class="status" role="status" aria-live="polite"></p>
+	        <div class="toolbar">
+	          <button id="decode" type="button">Decode</button>
+	          <button id="verify" type="button">Verify</button>
+	          <button id="sign" type="button">Sign</button>
+	          <button id="copyToken" class="ghost" type="button" aria-label="Copy JWT">Copy</button>
+	          <button id="clearAll" class="ghost" type="button" aria-label="Clear all fields">Clear</button>
+	          <select id="sampleKind" aria-label="Sample preset">
+	            <option value="hs256">Sample HS256</option>
+	            <option value="rs256-pem">Sample RS256 (PEM)</option>
+	            <option value="rs256-jwks">Sample RS256 (JWKS)</option>
+	            <option value="none">Sample none</option>
+	          </select>
+	          <button id="loadSample" class="ghost" type="button">Load</button>
+	        </div>
         <div class="row">
           <label for="alg">Algorithm</label>
           <select id="alg">
@@ -204,23 +214,26 @@ const formatPayloadEl = document.getElementById('formatPayload');
 const formatKeyEl = document.getElementById('formatKey');
 const convertJwkEl = document.getElementById('convertJwk');
 const convertJwksEl = document.getElementById('convertJwks');
-const jwksPickerEl = document.getElementById('jwksPicker');
-const kidSelectEl = document.getElementById('kidSelect');
-const clearAllEl = document.getElementById('clearAll');
+	const jwksPickerEl = document.getElementById('jwksPicker');
+	const kidSelectEl = document.getElementById('kidSelect');
+	const clearAllEl = document.getElementById('clearAll');
+	const sampleKindEl = document.getElementById('sampleKind');
+	const loadSampleEl = document.getElementById('loadSample');
 
-  const actionButtonIds = [
-    'decode',
-    'verify',
-    'sign',
-    'copyToken',
-    'clearAll',
-    'convertJwk',
-    'convertJwks',
-    'copyJwkOutput',
-    'formatHeader',
-    'formatPayload',
-    'formatKey',
-  ];
+	  const actionButtonIds = [
+	    'decode',
+	    'verify',
+	    'sign',
+	    'copyToken',
+	    'clearAll',
+	    'loadSample',
+	    'convertJwk',
+	    'convertJwks',
+	    'copyJwkOutput',
+	    'formatHeader',
+	    'formatPayload',
+	    'formatKey',
+	  ];
   const actionButtons = actionButtonIds
     .map((id) => document.getElementById(id))
     .filter((el) => Boolean(el));
@@ -441,23 +454,53 @@ copyTokenEl.addEventListener('click', async () => {
   });
 });
 
-clearAllEl.addEventListener('click', async () => {
-  await runAction(async () => {
-    tokenEl.value = '';
-    headerEl.value = '';
-    payloadEl.value = '';
-    keyEl.value = '';
-    kidEl.value = '';
-    jwkOutputEl.value = '';
-    audEl.value = '';
-    issEl.value = '';
-    leewayEl.value = '';
-    setWarnings([]);
-    setStatus('Cleared', 'ok');
-    updateKeyUi();
-    updateJwksPicker();
-  });
-});
+	clearAllEl.addEventListener('click', async () => {
+	  await runAction(async () => {
+	    tokenEl.value = '';
+	    headerEl.value = '';
+	    payloadEl.value = '';
+	    keyEl.value = '';
+	    kidEl.value = '';
+	    jwkOutputEl.value = '';
+	    audEl.value = '';
+	    issEl.value = '';
+	    leewayEl.value = '';
+	    setWarnings([]);
+	    setStatus('Cleared', 'ok');
+	    updateKeyUi();
+	    updateJwksPicker();
+	  });
+	});
+
+	loadSampleEl.addEventListener('click', async () => {
+	  await runAction(async () => {
+	    const data = await request('/api/sample', { kind: sampleKindEl.value });
+
+	    tokenEl.value = data.token || '';
+	    headerEl.value = JSON.stringify(data.header || {}, null, 2);
+	    payloadEl.value = JSON.stringify(data.payload || {}, null, 2);
+
+	    if (data.alg) {
+	      algEl.value = data.alg;
+	    }
+	    if (data.key_type) {
+	      keyTypeEl.value = data.key_type;
+	    }
+
+	    audEl.value = data.aud || '';
+	    issEl.value = data.iss || '';
+	    leewayEl.value = typeof data.leeway === 'number' ? String(data.leeway) : '';
+
+	    keyEl.value = data.key_text || '';
+	    kidEl.value = data.kid || '';
+	    jwkOutputEl.value = '';
+
+	    setWarnings(data.warnings || []);
+	    setStatus('Loaded sample', 'ok');
+	    updateKeyUi();
+	    updateJwksPicker();
+	  });
+	});
 
 copyJwkOutputEl.addEventListener('click', async () => {
   await runAction(async () => {
@@ -822,6 +865,11 @@ button.ghost {
   flex-wrap: wrap;
 }
 
+.toolbar select {
+  width: auto;
+  flex: 1 1 180px;
+}
+
 .policy {
   display: flex;
   flex-direction: column;
@@ -901,6 +949,149 @@ class JWTWorkbenchHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
         try:
             payload = self._read_json()
+            if self.path == "/api/sample":
+                kind = payload.get("kind")
+                if kind not in {"hs256", "rs256-pem", "rs256-jwks", "none"}:
+                    raise ValueError("unknown sample kind")
+
+                now = int(time.time())
+                sample_payload: dict[str, Any] = {
+                    "sub": "demo-user",
+                    "aud": "demo-aud",
+                    "iss": "demo-iss",
+                    "iat": now,
+                    "exp": now + 3600,
+                }
+
+                if kind == "none":
+                    token = sign_token(
+                        payload=sample_payload,
+                        key_path=None,
+                        key_text=None,
+                        alg="none",
+                        kid=None,
+                    )
+                    header, decoded = decode_token(token)
+                    warnings = analyze_claims(decoded, header)
+                    self._send_json(
+                        {
+                            "token": token,
+                            "header": header,
+                            "payload": decoded,
+                            "warnings": warnings,
+                            "alg": "none",
+                            "key_type": "secret",
+                            "key_text": "",
+                            "kid": "",
+                            "aud": "demo-aud",
+                            "iss": "demo-iss",
+                            "leeway": 30,
+                        }
+                    )
+                    return
+
+                if kind == "hs256":
+                    secret = "demo-secret-please-change"
+                    token = sign_token(
+                        payload=sample_payload,
+                        key_path=None,
+                        key_text=secret,
+                        alg="HS256",
+                        kid=None,
+                    )
+                    header, decoded = decode_token(token)
+                    warnings = analyze_claims(
+                        decoded, header, hmac_key_len=len(secret.encode("utf-8"))
+                    )
+                    self._send_json(
+                        {
+                            "token": token,
+                            "header": header,
+                            "payload": decoded,
+                            "warnings": warnings,
+                            "alg": "HS256",
+                            "key_type": "secret",
+                            "key_text": secret,
+                            "kid": "",
+                            "aud": "demo-aud",
+                            "iss": "demo-iss",
+                            "leeway": 30,
+                        }
+                    )
+                    return
+
+                private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+                private_pem = private_key.private_bytes(
+                    encoding=serialization.Encoding.PEM,
+                    format=serialization.PrivateFormat.PKCS8,
+                    encryption_algorithm=serialization.NoEncryption(),
+                ).decode("utf-8")
+                public_pem = (
+                    private_key.public_key()
+                    .public_bytes(
+                        encoding=serialization.Encoding.PEM,
+                        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+                    )
+                    .decode("utf-8")
+                )
+
+                token = sign_token(
+                    payload=sample_payload,
+                    key_path=None,
+                    key_text=private_pem,
+                    alg="RS256",
+                    kid="demo-k1",
+                )
+                header, decoded = decode_token(token)
+                warnings = analyze_claims(decoded, header)
+
+                if kind == "rs256-pem":
+                    self._send_json(
+                        {
+                            "token": token,
+                            "header": header,
+                            "payload": decoded,
+                            "warnings": warnings,
+                            "alg": "RS256",
+                            "key_type": "pem",
+                            "key_text": private_pem,
+                            "kid": "demo-k1",
+                            "aud": "demo-aud",
+                            "iss": "demo-iss",
+                            "leeway": 30,
+                        }
+                    )
+                    return
+
+                jwk1 = jwk_from_pem(public_pem, kid="demo-k1")
+                other_private = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+                other_public_pem = (
+                    other_private.public_key()
+                    .public_bytes(
+                        encoding=serialization.Encoding.PEM,
+                        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+                    )
+                    .decode("utf-8")
+                )
+                jwk2 = jwk_from_pem(other_public_pem, kid="demo-k2")
+                jwks = {"keys": [jwk1, jwk2]}
+
+                self._send_json(
+                    {
+                        "token": token,
+                        "header": header,
+                        "payload": decoded,
+                        "warnings": warnings,
+                        "alg": "RS256",
+                        "key_type": "jwks",
+                        "key_text": json.dumps(jwks, indent=2, sort_keys=True),
+                        "kid": "demo-k1",
+                        "aud": "demo-aud",
+                        "iss": "demo-iss",
+                        "leeway": 30,
+                    }
+                )
+                return
             if self.path == "/api/decode":
                 token = str(payload.get("token", "")).strip()
                 if not token:
