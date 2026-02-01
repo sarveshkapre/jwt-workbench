@@ -10,7 +10,9 @@ from jwt_workbench.core import (
     decode_token,
     jwk_from_pem,
     jwks_from_pem,
+    load_key_from_material,
     sign_token,
+    verify_token_with_key,
     verify_token,
 )
 
@@ -95,3 +97,12 @@ def test_hs_refuses_pem_secret() -> None:
             kid=None,
             alg="HS256",
         )
+
+
+def test_verify_with_loaded_key_material() -> None:
+    payload = {"sub": "site-user", "exp": int(time.time()) + 60}
+    token = sign_token(payload, key_path=None, key_text="secret123", alg="HS256", kid=None)
+    key = load_key_from_material("secret123", alg="HS256", kind="secret")
+    header, decoded = verify_token_with_key(token, key=key, alg="HS256")
+    assert header["alg"] == "HS256"
+    assert decoded["sub"] == "site-user"

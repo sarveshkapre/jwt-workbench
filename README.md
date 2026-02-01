@@ -42,3 +42,13 @@ Convert PEM → JWK:
 ```bash
 python -m jwt_workbench jwk --pem ./public.pem --kid my-key
 ```
+
+## Web UI (jwt.io-style)
+
+Launch the local web app:
+
+```bash
+python -m jwt_workbench serve --port 8000
+```
+
+Then open `http://127.0.0.1:8000` in your browser to decode, verify, sign, and convert keys.
