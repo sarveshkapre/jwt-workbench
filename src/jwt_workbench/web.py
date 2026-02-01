@@ -26,16 +26,25 @@ _INDEX_HTML = """
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <header>
-      <h1>JWT Workbench</h1>
-      <p>Offline JWT decode, verify, sign, and JWK tools.</p>
+    <header class="site-header">
+      <div class="container header-content">
+        <div>
+          <p class="eyebrow">JWT Workbench</p>
+          <h1>Modern JWT tooling, kept offline.</h1>
+          <p class="subtitle">Decode, verify, sign, and convert keys with a clean, focused UI.</p>
+        </div>
+        <div class="status-chip">Local only · No data leaves your device</div>
+      </div>
     </header>
 
-    <main>
+    <main class="container panels">
       <section class="panel">
-        <h2>Encoded</h2>
+        <div class="panel-header">
+          <h2>Encoded</h2>
+          <span class="panel-meta">Input</span>
+        </div>
         <textarea id="token" placeholder="Paste JWT here"></textarea>
-        <div class="row">
+        <div class="toolbar">
           <button id="decode">Decode</button>
           <button id="verify">Verify</button>
           <button id="sign">Sign</button>
@@ -51,7 +60,10 @@ _INDEX_HTML = """
       </section>
 
       <section class="panel">
-        <h2>Decoded</h2>
+        <div class="panel-header">
+          <h2>Decoded</h2>
+          <span class="panel-meta">Inspect</span>
+        </div>
         <label>Header</label>
         <textarea id="header" placeholder='{"alg":"HS256","typ":"JWT"}'></textarea>
         <label>Payload</label>
@@ -66,7 +78,10 @@ _INDEX_HTML = """
       </section>
 
       <section class="panel">
-        <h2>Signature</h2>
+        <div class="panel-header">
+          <h2>Signature</h2>
+          <span class="panel-meta">Keys</span>
+        </div>
         <div class="row">
           <label>Key type</label>
           <select id="keyType">
@@ -79,17 +94,19 @@ _INDEX_HTML = """
         <textarea id="key" placeholder="Paste secret or key material"></textarea>
         <label>Key ID (kid)</label>
         <input id="kid" placeholder="Optional kid for JWKS" />
-        <div class="row">
-          <button id="convertJwk">Convert PEM → JWK</button>
-          <button id="convertJwks">Convert PEM → JWKS</button>
+        <div class="toolbar secondary">
+          <button id="convertJwk" class="ghost">Convert PEM → JWK</button>
+          <button id="convertJwks" class="ghost">Convert PEM → JWKS</button>
         </div>
         <label>JWK/JWKS Output</label>
         <textarea id="jwkOutput" readonly></textarea>
       </section>
     </main>
 
-    <footer>
-      <p>JWT Workbench: jwt.io-style offline tooling with claim warnings.</p>
+    <footer class="site-footer">
+      <div class="container">
+        <p>JWT Workbench: jwt.io-style offline tooling with claim warnings.</p>
+      </div>
     </footer>
 
     <script src="/app.js"></script>
@@ -235,13 +252,22 @@ const convertJwks = async () => {
 
 _STYLES = """
 :root {
-  color-scheme: light dark;
-  font-family: "Inter", system-ui, sans-serif;
-  --bg: #0f172a;
-  --panel: #111827;
-  --text: #e5e7eb;
-  --muted: #94a3b8;
-  --accent: #38bdf8;
+  color-scheme: dark;
+  font-family: "SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Inter",
+    system-ui, sans-serif;
+  --bg: #0b0f1a;
+  --bg-glow: radial-gradient(circle at top, rgba(56, 189, 248, 0.18), transparent 45%);
+  --panel: rgba(17, 24, 39, 0.7);
+  --panel-border: rgba(148, 163, 184, 0.12);
+  --text: #f8fafc;
+  --muted: rgba(226, 232, 240, 0.7);
+  --accent: #7dd3fc;
+  --accent-strong: #38bdf8;
+  --shadow: 0 20px 50px rgba(15, 23, 42, 0.35);
+}
+
+* {
+  box-sizing: border-box;
 }
 
 body {
@@ -249,55 +275,119 @@ body {
   padding: 0;
   background: var(--bg);
   color: var(--text);
+  min-height: 100vh;
+  background-image: var(--bg-glow);
 }
 
-header {
-  padding: 32px 24px 0;
+.container {
+  width: min(1100px, 100%);
+  margin: 0 auto;
+  padding: 0 24px;
 }
 
-header h1 {
-  margin: 0 0 8px;
-  font-size: 2rem;
+.site-header {
+  padding: 48px 0 16px;
 }
 
-header p {
-  margin: 0 0 24px;
+.header-content {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  font-size: 0.7rem;
   color: var(--muted);
+  margin: 0 0 12px;
 }
 
-main {
+.site-header h1 {
+  margin: 0 0 12px;
+  font-size: clamp(2rem, 3vw, 2.6rem);
+  font-weight: 600;
+}
+
+.subtitle {
+  margin: 0;
+  color: var(--muted);
+  font-size: 1rem;
+  max-width: 520px;
+}
+
+.status-chip {
+  border-radius: 999px;
+  padding: 8px 16px;
+  border: 1px solid var(--panel-border);
+  background: rgba(15, 23, 42, 0.6);
+  font-size: 0.85rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.panels {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 16px;
-  padding: 0 24px 24px;
+  gap: 20px;
+  padding: 16px 0 32px;
 }
 
 .panel {
   background: var(--panel);
-  padding: 16px;
-  border-radius: 12px;
+  padding: 20px;
+  border-radius: 18px;
+  border: 1px solid var(--panel-border);
+  box-shadow: var(--shadow);
   display: flex;
   flex-direction: column;
   gap: 12px;
   min-height: 420px;
+  backdrop-filter: blur(12px);
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
 }
 
 .panel h2 {
   margin: 0;
-  font-size: 1.2rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.panel-meta {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--muted);
 }
 
 textarea,
 input,
 select {
   width: 100%;
-  padding: 10px;
-  border-radius: 8px;
-  border: 1px solid #1f2937;
-  background: #0b1220;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(15, 23, 42, 0.65);
   color: var(--text);
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
     "Liberation Mono", "Courier New", monospace;
+  transition: border 0.2s ease, box-shadow 0.2s ease;
+}
+
+textarea:focus,
+input:focus,
+select:focus {
+  outline: none;
+  border-color: rgba(56, 189, 248, 0.5);
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.15);
 }
 
 textarea {
@@ -306,23 +396,41 @@ textarea {
 }
 
 button {
-  background: var(--accent);
-  color: #0f172a;
+  background: var(--accent-strong);
+  color: #0b0f1a;
   border: none;
-  border-radius: 8px;
-  padding: 10px 16px;
+  border-radius: 999px;
+  padding: 10px 18px;
   cursor: pointer;
   font-weight: 600;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: 0 10px 20px rgba(56, 189, 248, 0.2);
 }
 
 button:hover {
-  filter: brightness(1.05);
+  transform: translateY(-1px);
 }
 
+button:active {
+  transform: translateY(0);
+}
+
+button.ghost {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  box-shadow: none;
+}
+
+.toolbar,
 .row {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   align-items: center;
+}
+
+.toolbar.secondary {
+  flex-wrap: wrap;
 }
 
 .row > * {
@@ -335,9 +443,10 @@ button:hover {
   color: #fbbf24;
 }
 
-footer {
-  padding: 0 24px 24px;
+.site-footer {
+  padding: 0 0 32px;
   color: var(--muted);
+  font-size: 0.9rem;
 }
 """
 
