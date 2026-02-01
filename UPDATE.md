@@ -5,6 +5,7 @@
 - Added optional `aud` / `iss` claim verification and `leeway` (clock skew) support for JWT verification (CLI + web UI).
 - Web UI now shows inline status/errors instead of using blocking browser alerts.
 - Web UI adds copy-to-clipboard buttons (JWT + JWK/JWKS output), keyboard shortcuts (Ctrl/Cmd+Enter verify, Ctrl/Cmd+Shift+Enter sign), and light/dark theme support.
+- Web UI adds JSON format buttons for header/payload and validates JSON before signing.
 
 ### How to verify
 
@@ -19,6 +20,7 @@ Then open `http://127.0.0.1:8000` and try:
 - Verify with `Expected aud`, `Expected iss`, and `Clock skew (s)` set.
 - Confirm claim mismatches show as an inline error.
 - Try copy buttons and keyboard shortcuts.
+- Try `Format` for header/payload and confirm invalid JSON is caught before signing.
 
 ### Notes
 

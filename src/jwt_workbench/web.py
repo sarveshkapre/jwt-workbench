@@ -87,14 +87,24 @@ _INDEX_HTML = """
           <h2>Decoded</h2>
           <span class="panel-meta">Inspect</span>
         </div>
-        <label for="header">Header</label>
+        <div class="output-header">
+          <label for="header">Header</label>
+          <button id="formatHeader" class="ghost" type="button" aria-label="Format header JSON">
+            Format
+          </button>
+        </div>
         <textarea
           id="header"
           placeholder='{"alg":"HS256","typ":"JWT"}'
           spellcheck="false"
           autocapitalize="off"
         ></textarea>
-        <label for="payload">Payload</label>
+        <div class="output-header">
+          <label for="payload">Payload</label>
+          <button id="formatPayload" class="ghost" type="button" aria-label="Format payload JSON">
+            Format
+          </button>
+        </div>
         <textarea
           id="payload"
           placeholder='{"sub":"1234567890","name":"John Doe","iat":1516239022}'
@@ -177,6 +187,8 @@ const issEl = document.getElementById('iss');
 const leewayEl = document.getElementById('leeway');
 const copyTokenEl = document.getElementById('copyToken');
 const copyJwkOutputEl = document.getElementById('copyJwkOutput');
+const formatHeaderEl = document.getElementById('formatHeader');
+const formatPayloadEl = document.getElementById('formatPayload');
 
 const actionButtonIds = [
   'decode',
@@ -217,6 +229,30 @@ const prettyJson = (value) => {
   } catch (err) {
     return value;
   }
+};
+
+const parseJsonObject = (value, label) => {
+  if (!value.trim()) {
+    return null;
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(value);
+  } catch (err) {
+    throw new Error(`${label} must be valid JSON`);
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error(`${label} must be a JSON object`);
+  }
+  return parsed;
+};
+
+const formatJsonTextarea = (el, label) => {
+  const obj = parseJsonObject(el.value, label);
+  if (obj === null) {
+    return;
+  }
+  el.value = JSON.stringify(obj, null, 2);
 };
 
 const request = async (path, body) => {
@@ -306,11 +342,13 @@ const verify = async () => {
 };
 
 const sign = async () => {
-  const payloadText = prettyJson(payloadEl.value.trim());
-  const headerText = prettyJson(headerEl.value.trim());
-  if (!payloadText) {
+  const payloadObj = parseJsonObject(payloadEl.value, 'Payload');
+  if (payloadObj === null) {
     return;
   }
+  const headerObj = parseJsonObject(headerEl.value, 'Header');
+  const payloadText = JSON.stringify(payloadObj, null, 2);
+  const headerText = headerObj ? JSON.stringify(headerObj, null, 2) : '';
   setStatus('', '');
   const data = await request('/api/sign', {
     payload: payloadText,
@@ -384,6 +422,20 @@ copyJwkOutputEl.addEventListener('click', async () => {
   await runAction(async () => {
     await copyText(jwkOutputEl.value);
     setStatus('Copied output', 'ok');
+  });
+});
+
+formatHeaderEl.addEventListener('click', async () => {
+  await runAction(async () => {
+    formatJsonTextarea(headerEl, 'Header');
+    setStatus('Formatted header', 'ok');
+  });
+});
+
+formatPayloadEl.addEventListener('click', async () => {
+  await runAction(async () => {
+    formatJsonTextarea(payloadEl, 'Payload');
+    setStatus('Formatted payload', 'ok');
   });
 });
 
