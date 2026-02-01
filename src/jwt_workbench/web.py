@@ -43,19 +43,42 @@ _INDEX_HTML = """
           <h2>Encoded</h2>
           <span class="panel-meta">Input</span>
         </div>
-        <textarea id="token" placeholder="Paste JWT here"></textarea>
+        <label for="token">JWT</label>
+        <textarea
+          id="token"
+          placeholder="Paste JWT here"
+          spellcheck="false"
+          autocapitalize="off"
+          autocomplete="off"
+        ></textarea>
+        <p id="status" class="status" role="status" aria-live="polite"></p>
         <div class="toolbar">
-          <button id="decode">Decode</button>
-          <button id="verify">Verify</button>
-          <button id="sign">Sign</button>
+          <button id="decode" type="button">Decode</button>
+          <button id="verify" type="button">Verify</button>
+          <button id="sign" type="button">Sign</button>
+          <button id="copyToken" class="ghost" type="button" aria-label="Copy JWT">Copy</button>
         </div>
         <div class="row">
-          <label>Algorithm</label>
+          <label for="alg">Algorithm</label>
           <select id="alg">
             <option value="HS256">HS256</option>
             <option value="RS256">RS256</option>
             <option value="none">none (unsigned)</option>
           </select>
+        </div>
+        <div class="policy">
+          <div class="row">
+            <label for="aud">Expected aud</label>
+            <input id="aud" placeholder="Optional audience" spellcheck="false" autocapitalize="off" />
+          </div>
+          <div class="row">
+            <label for="iss">Expected iss</label>
+            <input id="iss" placeholder="Optional issuer" spellcheck="false" autocapitalize="off" />
+          </div>
+          <div class="row">
+            <label for="leeway">Clock skew (s)</label>
+            <input id="leeway" inputmode="numeric" pattern="[0-9]*" placeholder="0" />
+          </div>
         </div>
       </section>
 
@@ -64,12 +87,19 @@ _INDEX_HTML = """
           <h2>Decoded</h2>
           <span class="panel-meta">Inspect</span>
         </div>
-        <label>Header</label>
-        <textarea id="header" placeholder='{"alg":"HS256","typ":"JWT"}'></textarea>
-        <label>Payload</label>
+        <label for="header">Header</label>
+        <textarea
+          id="header"
+          placeholder='{"alg":"HS256","typ":"JWT"}'
+          spellcheck="false"
+          autocapitalize="off"
+        ></textarea>
+        <label for="payload">Payload</label>
         <textarea
           id="payload"
           placeholder='{"sub":"1234567890","name":"John Doe","iat":1516239022}'
+          spellcheck="false"
+          autocapitalize="off"
         ></textarea>
         <div class="row">
           <label>Warnings</label>
@@ -83,7 +113,7 @@ _INDEX_HTML = """
           <span class="panel-meta">Keys</span>
         </div>
         <div class="row">
-          <label>Key type</label>
+          <label for="keyType">Key type</label>
           <select id="keyType">
             <option value="secret">HMAC secret</option>
             <option value="pem">PEM (public/private)</option>
@@ -91,15 +121,31 @@ _INDEX_HTML = """
             <option value="jwks">JWKS</option>
           </select>
         </div>
-        <textarea id="key" placeholder="Paste secret or key material"></textarea>
-        <label>Key ID (kid)</label>
-        <input id="kid" placeholder="Optional kid for JWKS" />
+        <label for="key">Key material</label>
+        <textarea
+          id="key"
+          placeholder="Paste secret or key material"
+          spellcheck="false"
+          autocapitalize="off"
+        ></textarea>
+        <label for="kid">Key ID (kid)</label>
+        <input id="kid" placeholder="Optional kid for JWKS" spellcheck="false" autocapitalize="off" />
         <div class="toolbar secondary">
-          <button id="convertJwk" class="ghost">Convert PEM → JWK</button>
-          <button id="convertJwks" class="ghost">Convert PEM → JWKS</button>
+          <button id="convertJwk" class="ghost" type="button">Convert PEM → JWK</button>
+          <button id="convertJwks" class="ghost" type="button">Convert PEM → JWKS</button>
         </div>
-        <label>JWK/JWKS Output</label>
-        <textarea id="jwkOutput" readonly></textarea>
+        <div class="output-header">
+          <label for="jwkOutput">JWK/JWKS Output</label>
+          <button
+            id="copyJwkOutput"
+            class="ghost"
+            type="button"
+            aria-label="Copy JWK or JWKS output"
+          >
+            Copy
+          </button>
+        </div>
+        <textarea id="jwkOutput" readonly aria-label="JWK/JWKS output" spellcheck="false"></textarea>
       </section>
     </main>
 
@@ -120,11 +166,41 @@ const tokenEl = document.getElementById('token');
 const headerEl = document.getElementById('header');
 const payloadEl = document.getElementById('payload');
 const warningsEl = document.getElementById('warnings');
+const statusEl = document.getElementById('status');
 const keyEl = document.getElementById('key');
 const algEl = document.getElementById('alg');
 const keyTypeEl = document.getElementById('keyType');
 const kidEl = document.getElementById('kid');
 const jwkOutputEl = document.getElementById('jwkOutput');
+const audEl = document.getElementById('aud');
+const issEl = document.getElementById('iss');
+const leewayEl = document.getElementById('leeway');
+const copyTokenEl = document.getElementById('copyToken');
+const copyJwkOutputEl = document.getElementById('copyJwkOutput');
+
+const actionButtonIds = [
+  'decode',
+  'verify',
+  'sign',
+  'copyToken',
+  'convertJwk',
+  'convertJwks',
+  'copyJwkOutput',
+];
+const actionButtons = actionButtonIds
+  .map((id) => document.getElementById(id))
+  .filter((el) => Boolean(el));
+
+const setBusy = (busy) => {
+  actionButtons.forEach((button) => {
+    button.disabled = Boolean(busy);
+  });
+};
+
+const setStatus = (message, kind) => {
+  statusEl.textContent = message || '';
+  statusEl.dataset.kind = kind || '';
+};
 
 const setWarnings = (warnings) => {
   warningsEl.innerHTML = '';
@@ -149,11 +225,42 @@ const request = async (path, body) => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  const payload = await response.json();
+
+  const contentType = response.headers.get('content-type') || '';
+  let payload = {};
+  if (contentType.includes('application/json')) {
+    payload = await response.json();
+  } else {
+    payload = { error: await response.text() };
+  }
+
   if (!response.ok) {
-    throw new Error(payload.error || 'Request failed');
+    throw new Error(payload.error || `Request failed (${response.status})`);
   }
   return payload;
+};
+
+const copyText = async (value) => {
+  const text = (value || '').toString();
+  if (!text.trim()) {
+    throw new Error('Nothing to copy');
+  }
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const temp = document.createElement('textarea');
+  temp.value = text;
+  temp.setAttribute('readonly', 'true');
+  temp.style.position = 'fixed';
+  temp.style.left = '-9999px';
+  document.body.appendChild(temp);
+  temp.select();
+  const ok = document.execCommand('copy');
+  document.body.removeChild(temp);
+  if (!ok) {
+    throw new Error('Copy failed');
+  }
 };
 
 const decode = async () => {
@@ -161,10 +268,12 @@ const decode = async () => {
   if (!token) {
     return;
   }
+  setStatus('', '');
   const data = await request('/api/decode', { token });
   headerEl.value = JSON.stringify(data.header, null, 2);
   payloadEl.value = JSON.stringify(data.payload, null, 2);
   setWarnings(data.warnings || []);
+  setStatus('Decoded', 'ok');
 };
 
 const verify = async () => {
@@ -172,16 +281,28 @@ const verify = async () => {
   if (!token) {
     return;
   }
+  setStatus('', '');
+
+  const leewayRaw = (leewayEl.value || '').trim();
+  const leeway = leewayRaw === '' ? 0 : Number.parseInt(leewayRaw, 10);
+  if (!Number.isFinite(leeway) || leeway < 0) {
+    throw new Error('Clock skew must be a non-negative integer');
+  }
+
   const data = await request('/api/verify', {
     token,
     alg: algEl.value,
     key_type: keyTypeEl.value,
     key_text: keyEl.value,
     kid: kidEl.value || null,
+    aud: (audEl.value || '').trim() || null,
+    iss: (issEl.value || '').trim() || null,
+    leeway,
   });
   headerEl.value = JSON.stringify(data.header, null, 2);
   payloadEl.value = JSON.stringify(data.payload, null, 2);
   setWarnings(data.warnings || []);
+  setStatus('Verified', 'ok');
 };
 
 const sign = async () => {
@@ -190,6 +311,7 @@ const sign = async () => {
   if (!payloadText) {
     return;
   }
+  setStatus('', '');
   const data = await request('/api/sign', {
     payload: payloadText,
     header: headerText,
@@ -200,59 +322,89 @@ const sign = async () => {
   });
   tokenEl.value = data.token;
   setWarnings(data.warnings || []);
+  setStatus('Signed', 'ok');
 };
 
 const convertJwk = async () => {
+  setStatus('', '');
   const data = await request('/api/jwk', {
     pem: keyEl.value,
     kid: kidEl.value || null,
   });
   jwkOutputEl.value = JSON.stringify(data.jwk, null, 2);
+  setStatus('Converted PEM → JWK', 'ok');
 };
 
 const convertJwks = async () => {
+  setStatus('', '');
   const data = await request('/api/jwks', {
     pem: keyEl.value,
     kid: kidEl.value || null,
   });
   jwkOutputEl.value = JSON.stringify(data.jwks, null, 2);
+  setStatus('Converted PEM → JWKS', 'ok');
 };
 
-['decode', 'verify', 'sign'].forEach((id) => {
-  document.getElementById(id).addEventListener('click', async () => {
-    try {
-      if (id === 'decode') {
-        await decode();
-      } else if (id === 'verify') {
-        await verify();
-      } else {
-        await sign();
-      }
-    } catch (err) {
-      alert(err.message);
-    }
+const runAction = async (fn) => {
+  try {
+    setBusy(true);
+    await fn();
+  } catch (err) {
+    setStatus(err.message || 'Request failed', 'error');
+  } finally {
+    setBusy(false);
+  }
+};
+
+document.getElementById('decode').addEventListener('click', async () => {
+  await runAction(decode);
+});
+document.getElementById('verify').addEventListener('click', async () => {
+  await runAction(verify);
+});
+document.getElementById('sign').addEventListener('click', async () => {
+  await runAction(sign);
+});
+
+document.getElementById('convertJwk').addEventListener('click', async () => {
+  await runAction(convertJwk);
+});
+document.getElementById('convertJwks').addEventListener('click', async () => {
+  await runAction(convertJwks);
+});
+
+copyTokenEl.addEventListener('click', async () => {
+  await runAction(async () => {
+    await copyText(tokenEl.value);
+    setStatus('Copied JWT', 'ok');
   });
 });
 
-['convertJwk', 'convertJwks'].forEach((id) => {
-  document.getElementById(id).addEventListener('click', async () => {
-    try {
-      if (id === 'convertJwk') {
-        await convertJwk();
-      } else {
-        await convertJwks();
-      }
-    } catch (err) {
-      alert(err.message);
-    }
+copyJwkOutputEl.addEventListener('click', async () => {
+  await runAction(async () => {
+    await copyText(jwkOutputEl.value);
+    setStatus('Copied output', 'ok');
   });
+});
+
+document.addEventListener('keydown', async (event) => {
+  const cmdOrCtrl = event.metaKey || event.ctrlKey;
+  if (!cmdOrCtrl || event.key !== 'Enter') {
+    return;
+  }
+  event.preventDefault();
+  if (event.shiftKey) {
+    await runAction(sign);
+  } else {
+    await runAction(verify);
+  }
 });
 """
 
 
 _STYLES = """
 :root {
-  color-scheme: dark;
+  color-scheme: light dark;
   font-family: "SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Inter",
     system-ui, sans-serif;
   --bg: #0b0f1a;
@@ -261,9 +413,29 @@ _STYLES = """
   --panel-border: rgba(148, 163, 184, 0.12);
   --text: #f8fafc;
   --muted: rgba(226, 232, 240, 0.7);
-  --accent: #7dd3fc;
   --accent-strong: #38bdf8;
+  --input-bg: rgba(15, 23, 42, 0.65);
+  --input-border: rgba(148, 163, 184, 0.2);
+  --ghost-border: rgba(148, 163, 184, 0.4);
   --shadow: 0 20px 50px rgba(15, 23, 42, 0.35);
+  --ok: rgba(34, 197, 94, 0.95);
+  --error: rgba(248, 113, 113, 0.95);
+  --warning: #fbbf24;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f7f8fb;
+    --bg-glow: radial-gradient(circle at top, rgba(56, 189, 248, 0.15), transparent 45%);
+    --panel: rgba(255, 255, 255, 0.75);
+    --panel-border: rgba(15, 23, 42, 0.1);
+    --text: #0b1220;
+    --muted: rgba(15, 23, 42, 0.65);
+    --input-bg: rgba(255, 255, 255, 0.9);
+    --input-border: rgba(15, 23, 42, 0.14);
+    --ghost-border: rgba(15, 23, 42, 0.22);
+    --shadow: 0 20px 50px rgba(15, 23, 42, 0.08);
+  }
 }
 
 * {
@@ -322,7 +494,7 @@ body {
   border-radius: 999px;
   padding: 8px 16px;
   border: 1px solid var(--panel-border);
-  background: rgba(15, 23, 42, 0.6);
+  background: rgba(15, 23, 42, 0.06);
   font-size: 0.85rem;
   color: var(--muted);
   white-space: nowrap;
@@ -368,14 +540,20 @@ body {
   color: var(--muted);
 }
 
+label {
+  display: block;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
 textarea,
 input,
 select {
   width: 100%;
   padding: 10px 12px;
   border-radius: 12px;
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
   color: var(--text);
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
     "Liberation Mono", "Courier New", monospace;
@@ -393,6 +571,32 @@ select:focus {
 textarea {
   min-height: 140px;
   resize: vertical;
+}
+
+.output-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.output-header button {
+  white-space: nowrap;
+}
+
+.status {
+  margin: 0;
+  min-height: 1.4em;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.status[data-kind="ok"] {
+  color: var(--ok);
+}
+
+.status[data-kind="error"] {
+  color: var(--error);
 }
 
 button {
@@ -415,10 +619,17 @@ button:active {
   transform: translateY(0);
 }
 
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
 button.ghost {
   background: transparent;
   color: var(--text);
-  border: 1px solid rgba(148, 163, 184, 0.4);
+  border: 1px solid var(--ghost-border);
   box-shadow: none;
 }
 
@@ -427,6 +638,16 @@ button.ghost {
   display: flex;
   gap: 10px;
   align-items: center;
+}
+
+.toolbar {
+  flex-wrap: wrap;
+}
+
+.policy {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .toolbar.secondary {
@@ -440,7 +661,7 @@ button.ghost {
 #warnings {
   margin: 0;
   padding-left: 18px;
-  color: #fbbf24;
+  color: var(--warning);
 }
 
 .site-footer {
@@ -510,6 +731,9 @@ class JWTWorkbenchHandler(BaseHTTPRequestHandler):
                 key_text = str(payload.get("key_text", ""))
                 alg = payload.get("alg") or None
                 kid = payload.get("kid")
+                aud = payload.get("aud")
+                iss = payload.get("iss")
+                leeway = payload.get("leeway", 0)
                 if not token:
                     raise ValueError("token is required")
                 if not key_text:
@@ -519,8 +743,21 @@ class JWTWorkbenchHandler(BaseHTTPRequestHandler):
                     alg = header.get("alg")
                 if not alg:
                     raise ValueError("missing alg in header; supply alg")
+                if aud is not None and not isinstance(aud, str):
+                    raise ValueError("aud must be a string")
+                if iss is not None and not isinstance(iss, str):
+                    raise ValueError("iss must be a string")
+                if not isinstance(leeway, int) or leeway < 0:
+                    raise ValueError("leeway must be a non-negative integer")
                 key = load_key_from_material(key_text, str(alg), key_type, kid=kid)
-                header, data = verify_token_with_key(token, key=key, alg=alg)
+                header, data = verify_token_with_key(
+                    token,
+                    key=key,
+                    alg=alg,
+                    audience=aud or None,
+                    issuer=iss or None,
+                    leeway=leeway,
+                )
                 hmac_len = infer_hmac_key_len(None, key_text) if key_type == "secret" else None
                 warnings = analyze_claims(data, header, hmac_key_len=hmac_len)
                 self._send_json({"header": header, "payload": data, "warnings": warnings})

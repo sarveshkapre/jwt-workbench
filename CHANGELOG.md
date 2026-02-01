@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add optional `aud`/`iss` verification and `leeway` (clock skew) to JWT verification (CLI + web).
+- Web UI: copy-to-clipboard buttons, keyboard shortcuts, and light/dark theme support.
+
 ## v0.1.0 - 2026-01-31
 
 - Decode JWTs without verification.

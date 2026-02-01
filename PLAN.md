@@ -1,18 +1,33 @@
-# PLAN.md
+# PLAN
 
-## MVP
+JWT Workbench is an offline jwt.io-style CLI + web UI to decode, verify, and sign JWTs (plus key conversion), with practical footgun warnings.
 
-- Decode JWT without verification.
-- Verify HS256/RS256 signatures with key inputs (file/text/JWK/JWKS).
-- Sign HS256/RS256 tokens from JSON payload.
-- Convert PEM public key → JWK/JWKS.
-- Footgun warnings (alg=none, missing exp/aud/iss, expired).
+## Shipped
 
-## Non-goals (MVP)
+- Decode JWTs without verification (CLI + web).
+- Verify HS256/RS256 signatures with local secrets/PEM/JWK/JWKS inputs.
+- Optional `aud`/`iss` claim verification + clock-skew `leeway` for verification (CLI + web).
+- Web UI: copy buttons (JWT + JWK/JWKS output), keyboard shortcuts, and light/dark theme support.
+- Sign HS256/RS256 tokens from JSON payload (CLI + web).
+- Convert PEM ↔︎ JWK/JWKS (CLI + web).
+- Footgun warnings (`alg=none`, missing/invalid `exp`, expired/near-expiry, missing `aud`/`iss`, `nbf`/`iat` in future, weak HMAC secrets).
 
-- OIDC discovery or remote key fetching.
-- Full JWT policy engine.
+## Next
 
-## Risks
+- Web UI: nicer key sections (tabs) + JSON formatting button.
+- Verification: optional allowlist helpers (multiple `aud`/`iss`) and clearer error surfaces for claim mismatches.
+- Key UX: JWKS viewer and key picker for multi-key JWKS.
 
-- Handling malformed tokens; guard with clear errors.
+## Top Risks / Unknowns
+
+- Claim verification semantics and user expectations (aud/iss formats, leeway, clock drift).
+- Robust handling of malformed tokens and untrusted key inputs.
+- Avoiding accidental secret/key leaks (logs, screenshots, clipboard).
+
+## Commands
+
+- Setup: `make setup`
+- Quality gate: `make check`
+- Run CLI: `python -m jwt_workbench --help`
+- Run web UI: `python -m jwt_workbench serve --port 8000`
+- More: `PROJECT.md`

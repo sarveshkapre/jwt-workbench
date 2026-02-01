@@ -69,6 +69,9 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         jwks_path=args.jwks,
         kid=args.kid,
         alg=args.alg,
+        audience=args.aud,
+        issuer=args.iss,
+        leeway=args.leeway,
     )
     _emit_warnings(payload, header, hmac_len)
     _print_json({"valid": True, "header": header, "payload": payload})
@@ -123,6 +126,14 @@ def main(argv: list[str] | None = None) -> int:
     p_verify.add_argument("--jwk", help="Path to JWK JSON file")
     p_verify.add_argument("--jwks", help="Path to JWKS JSON file")
     p_verify.add_argument("--kid", help="Key ID to select from JWKS")
+    p_verify.add_argument("--aud", help="Expected audience (enables aud claim verification)")
+    p_verify.add_argument("--iss", help="Expected issuer (enables iss claim verification)")
+    p_verify.add_argument(
+        "--leeway",
+        type=int,
+        default=0,
+        help="Clock skew in seconds when verifying exp/nbf/iat (default: 0)",
+    )
     p_verify.set_defaults(func=_cmd_verify)
 
     p_sign = sub.add_parser("sign", help="Sign a JWT")

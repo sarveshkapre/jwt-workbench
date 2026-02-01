@@ -91,6 +91,9 @@ def verify_token_with_key(
     token: str,
     key: Any,
     alg: str | None,
+    audience: str | None = None,
+    issuer: str | None = None,
+    leeway: int = 0,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     header = jwt.get_unverified_header(token)
     alg = alg or header.get("alg")
@@ -102,7 +105,13 @@ def verify_token_with_key(
         token,
         key=key,
         algorithms=[alg],
-        options={"verify_aud": False, "verify_iss": False},
+        audience=audience,
+        issuer=issuer,
+        leeway=leeway,
+        options={
+            "verify_aud": audience is not None,
+            "verify_iss": issuer is not None,
+        },
     )
     return header, payload
 
@@ -115,6 +124,9 @@ def verify_token(
     jwks_path: str | None,
     kid: str | None,
     alg: str | None,
+    audience: str | None = None,
+    issuer: str | None = None,
+    leeway: int = 0,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     header = jwt.get_unverified_header(token)
     alg = alg or header.get("alg")
@@ -141,7 +153,13 @@ def verify_token(
         token,
         key=key,
         algorithms=[alg],
-        options={"verify_aud": False, "verify_iss": False},
+        audience=audience,
+        issuer=issuer,
+        leeway=leeway,
+        options={
+            "verify_aud": audience is not None,
+            "verify_iss": issuer is not None,
+        },
     )
     return header, payload
 

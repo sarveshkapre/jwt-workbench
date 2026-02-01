@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 
 import pytest
+from jwt import exceptions as jwt_exceptions
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
@@ -106,3 +107,55 @@ def test_verify_with_loaded_key_material() -> None:
     header, decoded = verify_token_with_key(token, key=key, alg="HS256")
     assert header["alg"] == "HS256"
     assert decoded["sub"] == "site-user"
+
+
+def test_verify_aud_iss_with_leeway() -> None:
+    now = int(time.time())
+    payload = {"aud": "my-aud", "iss": "my-iss", "exp": now - 2}
+    token = sign_token(payload, key_path=None, key_text="secret123", alg="HS256", kid=None)
+
+    # Without leeway, exp verification should fail.
+    with pytest.raises(jwt_exceptions.ExpiredSignatureError):
+        verify_token(
+            token=token,
+            key_path=None,
+            key_text="secret123",
+            jwk_path=None,
+            jwks_path=None,
+            kid=None,
+            alg="HS256",
+            audience="my-aud",
+            issuer="my-iss",
+            leeway=0,
+        )
+
+    # With leeway, exp can pass; aud/iss must match.
+    header, verified = verify_token(
+        token=token,
+        key_path=None,
+        key_text="secret123",
+        jwk_path=None,
+        jwks_path=None,
+        kid=None,
+        alg="HS256",
+        audience="my-aud",
+        issuer="my-iss",
+        leeway=5,
+    )
+    assert header["alg"] == "HS256"
+    assert verified["aud"] == "my-aud"
+    assert verified["iss"] == "my-iss"
+
+    with pytest.raises(jwt_exceptions.InvalidAudienceError):
+        verify_token(
+            token=token,
+            key_path=None,
+            key_text="secret123",
+            jwk_path=None,
+            jwks_path=None,
+            kid=None,
+            alg="HS256",
+            audience="wrong-aud",
+            issuer="my-iss",
+            leeway=5,
+        )
