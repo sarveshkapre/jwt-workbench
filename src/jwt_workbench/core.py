@@ -12,6 +12,7 @@ from cryptography.hazmat.primitives.serialization import (
     load_pem_public_key,
 )
 from jwt import algorithms
+from jwt import exceptions as jwt_exceptions
 
 
 def decode_token(token: str) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -67,6 +68,55 @@ def _select_jwks_key(jwks: dict[str, Any], kid: str | None) -> Any:
     raise ValueError("JWKS has multiple keys; provide --kid")
 
 
+def _normalize_allowlist(
+    value: str | list[str] | None,
+) -> tuple[str | None, list[str] | None]:
+    if value is None:
+        return None, None
+    if isinstance(value, str):
+        cleaned = value.strip()
+        return (cleaned or None), None
+    if isinstance(value, list):
+        cleaned_list = [item.strip() for item in value if isinstance(item, str) and item.strip()]
+        if not cleaned_list:
+            return None, None
+        if len(cleaned_list) == 1:
+            return cleaned_list[0], None
+        return None, cleaned_list
+    raise ValueError("allowlist must be a string or list of strings")
+
+
+def _enforce_issuer_allowlist(payload: dict[str, Any], issuers: list[str]) -> None:
+    iss = payload.get("iss")
+    if not isinstance(iss, str) or not iss.strip():
+        raise jwt_exceptions.InvalidIssuerError("iss claim missing or not a string")
+    if iss not in issuers:
+        expected = ", ".join(issuers)
+        raise jwt_exceptions.InvalidIssuerError(f"iss claim mismatch (expected one of: {expected})")
+
+
+def _load_jwks_from_paths(
+    jwks_path: str | None,
+    jwks_cache_path: str | None,
+) -> dict[str, Any]:
+    if jwks_path:
+        jwks = cast(dict[str, Any], json.loads(Path(jwks_path).read_text(encoding="utf-8")))
+        if jwks_cache_path:
+            cache_path = Path(jwks_cache_path)
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text(
+                json.dumps(jwks, indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
+        return jwks
+    if jwks_cache_path:
+        cache_path = Path(jwks_cache_path)
+        if not cache_path.exists():
+            raise ValueError("JWKS cache file not found; provide --jwks to populate it")
+        return cast(dict[str, Any], json.loads(cache_path.read_text(encoding="utf-8")))
+    raise ValueError("missing JWKS material; provide --jwks or --jwks-cache")
+
+
 def load_key_from_material(key_text: str, alg: str, kind: str, kid: str | None = None) -> Any:
     if kind == "secret":
         return _load_key_from_text(key_text, alg)
@@ -92,7 +142,7 @@ def verify_token_with_key(
     key: Any,
     alg: str | None,
     audience: str | list[str] | None = None,
-    issuer: str | None = None,
+    issuer: str | list[str] | None = None,
     leeway: int = 0,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     header = jwt.get_unverified_header(token)
@@ -101,18 +151,21 @@ def verify_token_with_key(
         raise ValueError("missing alg in header; supply alg")
     if alg == "none":
         raise ValueError("refusing to verify alg=none")
+    issuer_value, issuer_allowlist = _normalize_allowlist(issuer)
     payload = jwt.decode(
         token,
         key=key,
         algorithms=[alg],
         audience=audience,
-        issuer=issuer,
+        issuer=issuer_value,
         leeway=leeway,
         options={
             "verify_aud": audience is not None,
-            "verify_iss": issuer is not None,
+            "verify_iss": issuer_value is not None,
         },
     )
+    if issuer_allowlist:
+        _enforce_issuer_allowlist(payload, issuer_allowlist)
     return header, payload
 
 
@@ -125,8 +178,9 @@ def verify_token(
     kid: str | None,
     alg: str | None,
     audience: str | list[str] | None = None,
-    issuer: str | None = None,
+    issuer: str | list[str] | None = None,
     leeway: int = 0,
+    jwks_cache_path: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     header = jwt.get_unverified_header(token)
     alg = alg or header.get("alg")
@@ -139,8 +193,8 @@ def verify_token(
     if jwk_path:
         jwk = json.loads(Path(jwk_path).read_text(encoding="utf-8"))
         key = algorithms.RSAAlgorithm.from_jwk(json.dumps(jwk))
-    elif jwks_path:
-        jwks = json.loads(Path(jwks_path).read_text(encoding="utf-8"))
+    elif jwks_path or jwks_cache_path:
+        jwks = _load_jwks_from_paths(jwks_path, jwks_cache_path)
         key = _select_jwks_key(jwks, kid)
     elif key_path:
         key = _load_key_from_file(Path(key_path), alg)
@@ -149,18 +203,21 @@ def verify_token(
     else:
         raise ValueError("missing key material; provide --key, --key-text, --jwk, or --jwks")
 
+    issuer_value, issuer_allowlist = _normalize_allowlist(issuer)
     payload = jwt.decode(
         token,
         key=key,
         algorithms=[alg],
         audience=audience,
-        issuer=issuer,
+        issuer=issuer_value,
         leeway=leeway,
         options={
             "verify_aud": audience is not None,
-            "verify_iss": issuer is not None,
+            "verify_iss": issuer_value is not None,
         },
     )
+    if issuer_allowlist:
+        _enforce_issuer_allowlist(payload, issuer_allowlist)
     return header, payload
 
 
@@ -265,10 +322,22 @@ def analyze_claims(
         except (TypeError, ValueError):
             warnings.append("iat claim is not an integer")
 
-    if "aud" not in payload:
+    aud = payload.get("aud")
+    if aud is None:
         warnings.append("missing aud claim")
-    if "iss" not in payload:
+    elif isinstance(aud, list):
+        if not aud:
+            warnings.append("aud claim list is empty")
+        elif not all(isinstance(item, str) for item in aud):
+            warnings.append("aud claim list must contain strings")
+    elif not isinstance(aud, str):
+        warnings.append("aud claim must be a string or list of strings")
+
+    iss = payload.get("iss")
+    if iss is None:
         warnings.append("missing iss claim")
+    elif not isinstance(iss, str):
+        warnings.append("iss claim must be a string")
 
     return warnings
 
@@ -282,3 +351,38 @@ def infer_hmac_key_len(key_path: str | None, key_text: str | None) -> int | None
     if _looks_like_pem(content) or _looks_like_json(content):
         return None
     return len(content.encode("utf-8"))
+
+
+def _format_allowlist(label: str, expected: str | list[str] | None) -> str:
+    if expected is None:
+        return f"{label} claim mismatch"
+    if isinstance(expected, list):
+        if not expected:
+            return f"{label} claim mismatch"
+        return f"{label} claim mismatch (expected one of: {', '.join(expected)})"
+    if not expected.strip():
+        return f"{label} claim mismatch"
+    return f"{label} claim mismatch (expected: {expected})"
+
+
+def format_jwt_error(
+    exc: jwt_exceptions.PyJWTError,
+    *,
+    audience: str | list[str] | None = None,
+    issuer: str | list[str] | None = None,
+) -> str:
+    if isinstance(exc, jwt_exceptions.ExpiredSignatureError):
+        return "token is expired"
+    if isinstance(exc, jwt_exceptions.ImmatureSignatureError):
+        return "token is not valid yet (nbf in the future)"
+    if isinstance(exc, jwt_exceptions.InvalidIssuedAtError):
+        return "iat is in the future"
+    if isinstance(exc, jwt_exceptions.InvalidAudienceError):
+        return _format_allowlist("aud", audience)
+    if isinstance(exc, jwt_exceptions.InvalidIssuerError):
+        return _format_allowlist("iss", issuer)
+    if isinstance(exc, jwt_exceptions.InvalidSignatureError):
+        return "signature verification failed"
+    if isinstance(exc, jwt_exceptions.DecodeError):
+        return "invalid token format"
+    return str(exc)

@@ -25,12 +25,14 @@ JWT Workbench is an offline jwt.io-style CLI + web UI to decode, verify, and sig
 - CLI: accept key material from stdin via `--key-text -`.
 - CLI: allow custom signing headers (`--headers` / `--headers-file`).
 - Footgun warnings (`alg=none`, missing/invalid `exp`, expired/near-expiry, missing `aud`/`iss`, `nbf`/`iat` in future, weak HMAC secrets).
+- Web UI: key tabs and key material presets for faster setup.
+- Verification: issuer allowlist helpers (comma-separated/repeatable) and clearer claim mismatch errors.
+- Key UX: JWKS viewer plus improved key picker for multi-key JWKS.
+- CLI: optional JWKS cache files for offline verification.
 
 ## Next
 
-- Web UI: nicer key sections (tabs) + key material presets.
-- Verification: optional allowlist helpers (multiple `aud`/`iss`) and clearer error surfaces for claim mismatches.
-- Key UX: JWKS viewer and key picker for multi-key JWKS.
+- TBD
 
 ## Top Risks / Unknowns
 

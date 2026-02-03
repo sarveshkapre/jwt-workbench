@@ -67,6 +67,19 @@ Verify with multiple audiences:
 python -m jwt_workbench verify --token "$JWT" --key-text "secret123" --aud "aud-1" --aud "aud-2"
 ```
 
+Verify with multiple issuers:
+
+```bash
+python -m jwt_workbench verify --token "$JWT" --key-text "secret123" --iss "iss-1" --iss "iss-2"
+```
+
+Verify with a JWKS cache file:
+
+```bash
+python -m jwt_workbench verify --token "$JWT" --jwks ./jwks.json --jwks-cache ~/.cache/jwt-workbench/jwks.json --kid my-kid
+python -m jwt_workbench verify --token "$JWT" --jwks-cache ~/.cache/jwt-workbench/jwks.json --kid my-kid
+```
+
 Sign (HS256):
 
 ```bash

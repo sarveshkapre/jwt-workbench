@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import time
+from pathlib import Path
 
 import pytest
 from jwt import exceptions as jwt_exceptions
@@ -178,6 +180,87 @@ def test_verify_audience_allowlist() -> None:
     )
     assert header["alg"] == "HS256"
     assert verified["aud"] == "a1"
+
+
+def test_verify_issuer_allowlist() -> None:
+    now = int(time.time())
+    payload = {"iss": "issuer-b", "exp": now + 60}
+    token = sign_token(payload, key_path=None, key_text="secret123", alg="HS256", kid=None)
+    header, verified = verify_token(
+        token=token,
+        key_path=None,
+        key_text="secret123",
+        jwk_path=None,
+        jwks_path=None,
+        jwks_cache_path=None,
+        kid=None,
+        alg="HS256",
+        audience=None,
+        issuer=["issuer-a", "issuer-b"],
+        leeway=0,
+    )
+    assert header["alg"] == "HS256"
+    assert verified["iss"] == "issuer-b"
+
+    with pytest.raises(jwt_exceptions.InvalidIssuerError):
+        verify_token(
+            token=token,
+            key_path=None,
+            key_text="secret123",
+            jwk_path=None,
+            jwks_path=None,
+            jwks_cache_path=None,
+            kid=None,
+            alg="HS256",
+            audience=None,
+            issuer=["issuer-a"],
+            leeway=0,
+        )
+
+
+def test_jwks_cache_file(tmp_path: Path) -> None:
+    private_pem, public_pem = _rsa_keypair()
+    payload = {"sub": "cache-user", "exp": int(time.time()) + 60}
+    token = sign_token(payload, key_path=None, key_text=private_pem, alg="RS256", kid="cache-k1")
+
+    jwk = jwk_from_pem(public_pem, kid="cache-k1")
+    jwks = {"keys": [jwk]}
+    jwks_path = tmp_path / "jwks.json"
+    jwks_path.write_text(json.dumps(jwks), encoding="utf-8")
+    cache_path = tmp_path / "cache" / "jwks-cache.json"
+
+    header, verified = verify_token(
+        token=token,
+        key_path=None,
+        key_text=None,
+        jwk_path=None,
+        jwks_path=str(jwks_path),
+        jwks_cache_path=str(cache_path),
+        kid="cache-k1",
+        alg="RS256",
+        audience=None,
+        issuer=None,
+        leeway=0,
+    )
+    assert header["alg"] == "RS256"
+    assert verified["sub"] == "cache-user"
+    assert cache_path.exists()
+
+    header, verified = verify_token(
+        token=token,
+        key_path=None,
+        key_text=None,
+        jwk_path=None,
+        jwks_path=None,
+        jwks_cache_path=str(cache_path),
+        kid="cache-k1",
+        alg="RS256",
+        audience=None,
+        issuer=None,
+        leeway=0,
+    )
+    assert header["alg"] == "RS256"
+    assert verified["sub"] == "cache-user"
 
 
 def test_none_sign_decode() -> None:

@@ -13,6 +13,7 @@ from jwt import exceptions as jwt_exceptions
 from .core import (
     analyze_claims,
     decode_token,
+    format_jwt_error,
     infer_hmac_key_len,
     jwk_from_pem,
     jwks_from_pem,
@@ -32,21 +33,25 @@ _INDEX_HTML = """
   </head>
   <body>
     <header class="site-header">
-      <div class="container header-content">
-        <div>
-          <p class="eyebrow">JWT Workbench</p>
-          <h1>Modern JWT tooling, kept offline.</h1>
-          <p class="subtitle">Decode, verify, sign, and convert keys with a clean, focused UI.</p>
+      <div class="container">
+        <div class="header-content">
+          <div>
+            <p class="eyebrow">Offline toolkit</p>
+            <h1>JWT Workbench</h1>
+            <p class="subtitle">Offline JWT decode, verify, sign, and JWK tooling with claim warnings.</p>
+          </div>
+          <div class="status-chip">No network required</div>
         </div>
-        <div class="status-chip">Local only · No data leaves your device</div>
       </div>
     </header>
 
     <main class="container panels">
       <section class="panel">
         <div class="panel-header">
-          <h2>Encoded</h2>
-          <span class="panel-meta">Input</span>
+          <div>
+            <h2>Encoded</h2>
+            <span class="panel-meta">Input</span>
+          </div>
         </div>
         <label for="token">JWT</label>
         <textarea
@@ -56,21 +61,21 @@ _INDEX_HTML = """
           autocapitalize="off"
           autocomplete="off"
         ></textarea>
-	        <p id="status" class="status" role="status" aria-live="polite"></p>
-	        <div class="toolbar">
-	          <button id="decode" type="button">Decode</button>
-	          <button id="verify" type="button">Verify</button>
-	          <button id="sign" type="button">Sign</button>
-	          <button id="copyToken" class="ghost" type="button" aria-label="Copy JWT">Copy</button>
-	          <button id="clearAll" class="ghost" type="button" aria-label="Clear all fields">Clear</button>
-	          <select id="sampleKind" aria-label="Sample preset">
-	            <option value="hs256">Sample HS256</option>
-	            <option value="rs256-pem">Sample RS256 (PEM)</option>
-	            <option value="rs256-jwks">Sample RS256 (JWKS)</option>
-	            <option value="none">Sample none</option>
-	          </select>
-	          <button id="loadSample" class="ghost" type="button">Load</button>
-	        </div>
+        <p id="status" class="status" role="status" aria-live="polite"></p>
+        <div class="toolbar">
+          <button id="decode" type="button">Decode</button>
+          <button id="verify" type="button">Verify</button>
+          <button id="sign" type="button">Sign</button>
+          <button id="copyToken" class="ghost" type="button" aria-label="Copy JWT">Copy</button>
+          <button id="clearAll" class="ghost" type="button" aria-label="Clear all fields">Clear</button>
+          <select id="sampleKind" aria-label="Sample preset">
+            <option value="hs256">Sample HS256</option>
+            <option value="rs256-pem">Sample RS256 (PEM)</option>
+            <option value="rs256-jwks">Sample RS256 (JWKS)</option>
+            <option value="none">Sample none</option>
+          </select>
+          <button id="loadSample" class="ghost" type="button">Load</button>
+        </div>
         <div class="row">
           <label for="alg">Algorithm</label>
           <select id="alg">
@@ -82,11 +87,21 @@ _INDEX_HTML = """
         <div class="policy">
           <div class="row">
             <label for="aud">Expected aud</label>
-            <input id="aud" placeholder="Optional audience" spellcheck="false" autocapitalize="off" />
+            <input
+              id="aud"
+              placeholder="Comma-separated allowlist"
+              spellcheck="false"
+              autocapitalize="off"
+            />
           </div>
           <div class="row">
             <label for="iss">Expected iss</label>
-            <input id="iss" placeholder="Optional issuer" spellcheck="false" autocapitalize="off" />
+            <input
+              id="iss"
+              placeholder="Comma-separated allowlist"
+              spellcheck="false"
+              autocapitalize="off"
+            />
           </div>
           <div class="row">
             <label for="leeway">Clock skew (s)</label>
@@ -97,8 +112,10 @@ _INDEX_HTML = """
 
       <section class="panel">
         <div class="panel-header">
-          <h2>Decoded</h2>
-          <span class="panel-meta">Inspect</span>
+          <div>
+            <h2>Decoded</h2>
+            <span class="panel-meta">Inspect</span>
+          </div>
         </div>
         <div class="output-header">
           <label for="header">Header</label>
@@ -120,7 +137,7 @@ _INDEX_HTML = """
         </div>
         <textarea
           id="payload"
-          placeholder='{"sub":"1234567890","name":"John Doe","iat":1516239022}'
+          placeholder='{"sub":"1234567890","name":"Ada Lovelace","iat":1516239022}'
           spellcheck="false"
           autocapitalize="off"
         ></textarea>
@@ -132,23 +149,34 @@ _INDEX_HTML = """
 
       <section class="panel">
         <div class="panel-header">
-          <h2>Signature</h2>
-          <span class="panel-meta">Keys</span>
+          <div>
+            <h2>Keys</h2>
+            <span class="panel-meta">Material</span>
+          </div>
         </div>
-        <div class="row">
-          <label for="keyType">Key type</label>
-          <select id="keyType">
-            <option value="secret">HMAC secret</option>
-            <option value="pem">PEM (public/private)</option>
-            <option value="jwk">JWK</option>
-            <option value="jwks">JWKS</option>
-          </select>
+        <div class="tabs" role="tablist" aria-label="Key type">
+          <button class="tab" type="button" data-keytype="secret" aria-selected="true">HMAC</button>
+          <button class="tab" type="button" data-keytype="pem" aria-selected="false">PEM</button>
+          <button class="tab" type="button" data-keytype="jwk" aria-selected="false">JWK</button>
+          <button class="tab" type="button" data-keytype="jwks" aria-selected="false">JWKS</button>
+        </div>
+        <label class="sr-only" for="keyType">Key type</label>
+        <select id="keyType" class="sr-only">
+          <option value="secret">HMAC secret</option>
+          <option value="pem">PEM (public/private)</option>
+          <option value="jwk">JWK</option>
+          <option value="jwks">JWKS</option>
+        </select>
+        <div class="row preset-row">
+          <label for="keyPreset">Key presets</label>
+          <div class="row-inline">
+            <select id="keyPreset"></select>
+            <button id="loadPreset" class="ghost" type="button">Load</button>
+          </div>
         </div>
         <div class="output-header">
           <label for="key">Key material</label>
-          <button id="formatKey" class="ghost" type="button" aria-label="Format key JSON">
-            Format
-          </button>
+          <button id="formatKey" class="ghost" type="button" aria-label="Format key JSON">Format</button>
         </div>
         <textarea
           id="key"
@@ -156,11 +184,20 @@ _INDEX_HTML = """
           spellcheck="false"
           autocapitalize="off"
         ></textarea>
-        <label for="kid">Key ID (kid)</label>
-        <input id="kid" placeholder="Optional kid for JWKS" spellcheck="false" autocapitalize="off" />
+        <div class="row">
+          <label for="kid">Key ID (kid)</label>
+          <input id="kid" placeholder="Optional kid for JWKS" spellcheck="false" autocapitalize="off" />
+        </div>
         <div id="jwksPicker" class="jwks-picker" hidden>
           <label for="kidSelect">JWKS keys</label>
           <select id="kidSelect"></select>
+        </div>
+        <div id="jwksViewer" class="jwks-viewer" hidden>
+          <div class="output-header">
+            <label>JWKS viewer</label>
+            <span id="jwksSummary" class="meta"></span>
+          </div>
+          <ul id="jwksList"></ul>
         </div>
         <div class="toolbar secondary">
           <button id="convertJwk" class="ghost" type="button">Convert PEM → JWK</button>
@@ -181,10 +218,8 @@ _INDEX_HTML = """
       </section>
     </main>
 
-    <footer class="site-footer">
-      <div class="container">
-        <p>JWT Workbench: jwt.io-style offline tooling with claim warnings.</p>
-      </div>
+    <footer class="container footer">
+      <p>JWT Workbench: jwt.io-style offline tooling with claim warnings.</p>
     </footer>
 
     <script src="/app.js"></script>
@@ -194,7 +229,7 @@ _INDEX_HTML = """
 
 
 _APP_JS = """
-  const tokenEl = document.getElementById('token');
+const tokenEl = document.getElementById('token');
 const headerEl = document.getElementById('header');
 const payloadEl = document.getElementById('payload');
 const warningsEl = document.getElementById('warnings');
@@ -214,29 +249,103 @@ const formatPayloadEl = document.getElementById('formatPayload');
 const formatKeyEl = document.getElementById('formatKey');
 const convertJwkEl = document.getElementById('convertJwk');
 const convertJwksEl = document.getElementById('convertJwks');
-	const jwksPickerEl = document.getElementById('jwksPicker');
-	const kidSelectEl = document.getElementById('kidSelect');
-	const clearAllEl = document.getElementById('clearAll');
-	const sampleKindEl = document.getElementById('sampleKind');
-	const loadSampleEl = document.getElementById('loadSample');
+const jwksPickerEl = document.getElementById('jwksPicker');
+const kidSelectEl = document.getElementById('kidSelect');
+const jwksViewerEl = document.getElementById('jwksViewer');
+const jwksListEl = document.getElementById('jwksList');
+const jwksSummaryEl = document.getElementById('jwksSummary');
+const clearAllEl = document.getElementById('clearAll');
+const sampleKindEl = document.getElementById('sampleKind');
+const loadSampleEl = document.getElementById('loadSample');
+const keyPresetEl = document.getElementById('keyPreset');
+const loadPresetEl = document.getElementById('loadPreset');
+const keyTabs = Array.from(document.querySelectorAll('[data-keytype]'));
 
-	  const actionButtonIds = [
-	    'decode',
-	    'verify',
-	    'sign',
-	    'copyToken',
-	    'clearAll',
-	    'loadSample',
-	    'convertJwk',
-	    'convertJwks',
-	    'copyJwkOutput',
-	    'formatHeader',
-	    'formatPayload',
-	    'formatKey',
-	  ];
-  const actionButtons = actionButtonIds
-    .map((id) => document.getElementById(id))
-    .filter((el) => Boolean(el));
+const KEY_PRESETS = {
+  secret: [
+    {
+      id: 'secret-demo',
+      label: 'Demo secret (short)',
+      kind: 'static',
+      value: 'demo-secret-please-change',
+      alg: 'HS256',
+    },
+    {
+      id: 'secret-strong',
+      label: 'Demo secret (32+ bytes)',
+      kind: 'static',
+      value: 'correct-horse-battery-staple-please-change-2026',
+      alg: 'HS256',
+    },
+  ],
+  pem: [
+    {
+      id: 'pem-private',
+      label: 'Sample RSA private key',
+      kind: 'api',
+      apiKind: 'pem-private',
+      alg: 'RS256',
+    },
+    {
+      id: 'pem-public',
+      label: 'Sample RSA public key',
+      kind: 'api',
+      apiKind: 'pem-public',
+      alg: 'RS256',
+    },
+  ],
+  jwk: [
+    {
+      id: 'jwk-sample',
+      label: 'Sample RSA JWK',
+      kind: 'api',
+      apiKind: 'jwk',
+      alg: 'RS256',
+    },
+    {
+      id: 'jwk-template',
+      label: 'Template JWK',
+      kind: 'static',
+      value: '{\n  "kty": "RSA",\n  "kid": "demo-k1",\n  "use": "sig",\n  "alg": "RS256",\n  "n": "<modulus>",\n  "e": "AQAB"\n}',
+      alg: 'RS256',
+    },
+  ],
+  jwks: [
+    {
+      id: 'jwks-sample',
+      label: 'Sample JWKS (2 keys)',
+      kind: 'api',
+      apiKind: 'jwks',
+      alg: 'RS256',
+    },
+    {
+      id: 'jwks-template',
+      label: 'Template JWKS',
+      kind: 'static',
+      value: '{\n  "keys": [\n    {\n      "kty": "RSA",\n      "kid": "demo-k1",\n      "use": "sig",\n      "alg": "RS256",\n      "n": "<modulus>",\n      "e": "AQAB"\n    }\n  ]\n}',
+      alg: 'RS256',
+    },
+  ],
+};
+
+const actionButtonIds = [
+  'decode',
+  'verify',
+  'sign',
+  'copyToken',
+  'clearAll',
+  'loadSample',
+  'loadPreset',
+  'convertJwk',
+  'convertJwks',
+  'copyJwkOutput',
+  'formatHeader',
+  'formatPayload',
+  'formatKey',
+];
+const actionButtons = actionButtonIds
+  .map((id) => document.getElementById(id))
+  .filter((el) => Boolean(el));
 
 const setBusy = (busy) => {
   actionButtons.forEach((button) => {
@@ -256,14 +365,6 @@ const setWarnings = (warnings) => {
     li.textContent = warning;
     warningsEl.appendChild(li);
   });
-};
-
-const prettyJson = (value) => {
-  try {
-    return JSON.stringify(JSON.parse(value), null, 2);
-  } catch (err) {
-    return value;
-  }
 };
 
 const parseJsonObject = (value, label) => {
@@ -288,6 +389,18 @@ const formatJsonTextarea = (el, label) => {
     return;
   }
   el.value = JSON.stringify(obj, null, 2);
+};
+
+const parseListInput = (value) => {
+  const trimmed = (value || '').trim();
+  if (!trimmed) {
+    return null;
+  }
+  const parts = trimmed.split(',').map((part) => part.trim()).filter((part) => part.length > 0);
+  if (parts.length <= 1) {
+    return parts[0] || null;
+  }
+  return parts;
 };
 
 const request = async (path, body) => {
@@ -359,12 +472,9 @@ const verify = async () => {
   if (!Number.isFinite(leeway) || leeway < 0) {
     throw new Error('Clock skew must be a non-negative integer');
   }
-  const audRaw = (audEl.value || '').trim();
-  let aud = null;
-  if (audRaw) {
-    const parts = audRaw.split(',').map((p) => p.trim()).filter((p) => p.length > 0);
-    aud = parts.length <= 1 ? audRaw : parts;
-  }
+
+  const aud = parseListInput(audEl.value);
+  const iss = parseListInput(issEl.value);
 
   const data = await request('/api/verify', {
     token,
@@ -373,7 +483,7 @@ const verify = async () => {
     key_text: keyEl.value,
     kid: kidEl.value || null,
     aud,
-    iss: (issEl.value || '').trim() || null,
+    iss,
     leeway,
   });
   headerEl.value = JSON.stringify(data.header, null, 2);
@@ -382,28 +492,28 @@ const verify = async () => {
   setStatus('Verified', 'ok');
 };
 
-  const sign = async () => {
-    const payloadObj = parseJsonObject(payloadEl.value, 'Payload');
-    if (payloadObj === null) {
-      return;
-    }
-    const headerObj = parseJsonObject(headerEl.value, 'Header');
-    const payloadText = JSON.stringify(payloadObj, null, 2);
-    const headerText = headerObj ? JSON.stringify(headerObj, null, 2) : '';
-    setStatus('', '');
-    const alg = algEl.value;
-    const data = await request('/api/sign', {
-      payload: payloadText,
-      header: headerText,
-      alg,
-      key_type: keyTypeEl.value,
-      key_text: keyEl.value,
-      kid: kidEl.value || null,
-    });
-    tokenEl.value = data.token;
-    setWarnings(data.warnings || []);
-    setStatus('Signed', 'ok');
-  };
+const sign = async () => {
+  const payloadObj = parseJsonObject(payloadEl.value, 'Payload');
+  if (payloadObj === null) {
+    return;
+  }
+  const headerObj = parseJsonObject(headerEl.value, 'Header');
+  const payloadText = JSON.stringify(payloadObj, null, 2);
+  const headerText = headerObj ? JSON.stringify(headerObj, null, 2) : '';
+  setStatus('', '');
+  const alg = algEl.value;
+  const data = await request('/api/sign', {
+    payload: payloadText,
+    header: headerText,
+    alg,
+    key_type: keyTypeEl.value,
+    key_text: keyEl.value,
+    kid: kidEl.value || null,
+  });
+  tokenEl.value = data.token;
+  setWarnings(data.warnings || []);
+  setStatus('Signed', 'ok');
+};
 
 const convertJwk = async () => {
   setStatus('', '');
@@ -436,6 +546,69 @@ const runAction = async (fn) => {
   }
 };
 
+const setKeyType = (value) => {
+  keyTypeEl.value = value;
+  keyTabs.forEach((tab) => {
+    const active = tab.dataset.keytype === value;
+    tab.classList.toggle('active', active);
+    tab.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+  renderPresetOptions();
+  updateKeyUi();
+  updateJwksPicker();
+  updateJwksViewer();
+};
+
+const renderPresetOptions = () => {
+  const keyType = keyTypeEl.value;
+  const presets = KEY_PRESETS[keyType] || [];
+  keyPresetEl.innerHTML = '';
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = 'Choose preset...';
+  keyPresetEl.appendChild(placeholder);
+  presets.forEach((preset) => {
+    const option = document.createElement('option');
+    option.value = preset.id;
+    option.textContent = preset.label;
+    keyPresetEl.appendChild(option);
+  });
+  keyPresetEl.value = '';
+};
+
+const applyPreset = async () => {
+  const keyType = keyTypeEl.value;
+  const presetId = keyPresetEl.value;
+  if (!presetId) {
+    return;
+  }
+  const preset = (KEY_PRESETS[keyType] || []).find((item) => item.id === presetId);
+  if (!preset) {
+    return;
+  }
+  if (preset.kind === 'static') {
+    keyEl.value = preset.value || '';
+    if (preset.alg) {
+      algEl.value = preset.alg;
+    }
+    setStatus('Loaded key preset', 'ok');
+  } else if (preset.kind === 'api') {
+    const data = await request('/api/key-preset', { kind: preset.apiKind });
+    keyEl.value = data.key_text || '';
+    if (data.kid) {
+      kidEl.value = data.kid;
+    }
+    if (data.alg) {
+      algEl.value = data.alg;
+    }
+    setStatus('Loaded key preset', 'ok');
+  }
+  keyPresetEl.value = '';
+  updateKeyUi();
+  updateJwksPicker();
+  updateJwksViewer();
+};
+
 document.getElementById('decode').addEventListener('click', async () => {
   await runAction(decode);
 });
@@ -460,53 +633,59 @@ copyTokenEl.addEventListener('click', async () => {
   });
 });
 
-	clearAllEl.addEventListener('click', async () => {
-	  await runAction(async () => {
-	    tokenEl.value = '';
-	    headerEl.value = '';
-	    payloadEl.value = '';
-	    keyEl.value = '';
-	    kidEl.value = '';
-	    jwkOutputEl.value = '';
-	    audEl.value = '';
-	    issEl.value = '';
-	    leewayEl.value = '';
-	    setWarnings([]);
-	    setStatus('Cleared', 'ok');
-	    updateKeyUi();
-	    updateJwksPicker();
-	  });
-	});
+clearAllEl.addEventListener('click', async () => {
+  await runAction(async () => {
+    tokenEl.value = '';
+    headerEl.value = '';
+    payloadEl.value = '';
+    keyEl.value = '';
+    kidEl.value = '';
+    jwkOutputEl.value = '';
+    audEl.value = '';
+    issEl.value = '';
+    leewayEl.value = '';
+    setWarnings([]);
+    setStatus('Cleared', 'ok');
+    updateKeyUi();
+    updateJwksPicker();
+    updateJwksViewer();
+  });
+});
 
-	loadSampleEl.addEventListener('click', async () => {
-	  await runAction(async () => {
-	    const data = await request('/api/sample', { kind: sampleKindEl.value });
+loadSampleEl.addEventListener('click', async () => {
+  await runAction(async () => {
+    const data = await request('/api/sample', { kind: sampleKindEl.value });
 
-	    tokenEl.value = data.token || '';
-	    headerEl.value = JSON.stringify(data.header || {}, null, 2);
-	    payloadEl.value = JSON.stringify(data.payload || {}, null, 2);
+    tokenEl.value = data.token || '';
+    headerEl.value = JSON.stringify(data.header || {}, null, 2);
+    payloadEl.value = JSON.stringify(data.payload || {}, null, 2);
 
-	    if (data.alg) {
-	      algEl.value = data.alg;
-	    }
-	    if (data.key_type) {
-	      keyTypeEl.value = data.key_type;
-	    }
+    if (data.alg) {
+      algEl.value = data.alg;
+    }
+    if (data.key_type) {
+      setKeyType(data.key_type);
+    }
 
-	    audEl.value = data.aud || '';
-	    issEl.value = data.iss || '';
-	    leewayEl.value = typeof data.leeway === 'number' ? String(data.leeway) : '';
+    audEl.value = data.aud || '';
+    issEl.value = data.iss || '';
+    leewayEl.value = typeof data.leeway === 'number' ? String(data.leeway) : '';
 
-	    keyEl.value = data.key_text || '';
-	    kidEl.value = data.kid || '';
-	    jwkOutputEl.value = '';
+    keyEl.value = data.key_text || '';
+    kidEl.value = data.kid || '';
+    jwkOutputEl.value = '';
 
-	    setWarnings(data.warnings || []);
-	    setStatus('Loaded sample', 'ok');
-	    updateKeyUi();
-	    updateJwksPicker();
-	  });
-	});
+    setWarnings(data.warnings || []);
+    setStatus('Loaded sample', 'ok');
+    updateKeyUi();
+    updateJwksPicker();
+    updateJwksViewer();
+  });
+});
+
+loadPresetEl.addEventListener('click', async () => {
+  await runAction(applyPreset);
+});
 
 copyJwkOutputEl.addEventListener('click', async () => {
   await runAction(async () => {
@@ -515,104 +694,164 @@ copyJwkOutputEl.addEventListener('click', async () => {
   });
 });
 
-  const updateKeyUi = () => {
-    const noneAlg = algEl.value === 'none';
-    const keyType = keyTypeEl.value;
-    keyTypeEl.disabled = noneAlg;
-    keyEl.disabled = noneAlg;
-    kidEl.disabled = noneAlg;
-    convertJwkEl.disabled = noneAlg;
-    convertJwksEl.disabled = noneAlg;
-    formatKeyEl.disabled = noneAlg || (keyType !== 'jwk' && keyType !== 'jwks');
-    if (noneAlg) {
-      keyEl.placeholder = 'No key required for alg=none';
-      kidEl.placeholder = 'Not used for alg=none';
+const updateKeyUi = () => {
+  const noneAlg = algEl.value === 'none';
+  const keyType = keyTypeEl.value;
+  keyTabs.forEach((tab) => {
+    tab.disabled = noneAlg;
+  });
+  keyTypeEl.disabled = noneAlg;
+  keyEl.disabled = noneAlg;
+  kidEl.disabled = noneAlg;
+  keyPresetEl.disabled = noneAlg;
+  loadPresetEl.disabled = noneAlg;
+  convertJwkEl.disabled = noneAlg || keyType !== 'pem';
+  convertJwksEl.disabled = noneAlg || keyType !== 'pem';
+  formatKeyEl.disabled = noneAlg || (keyType !== 'jwk' && keyType !== 'jwks');
+  if (noneAlg) {
+    keyEl.placeholder = 'No key required for alg=none';
+    kidEl.placeholder = 'Not used for alg=none';
+  } else {
+    keyEl.placeholder = 'Paste secret or key material';
+    kidEl.placeholder = 'Optional kid for JWKS';
+  }
+
+  jwksPickerEl.hidden = noneAlg || keyType !== 'jwks';
+  jwksViewerEl.hidden = noneAlg || keyType !== 'jwks';
+};
+
+algEl.addEventListener('change', updateKeyUi);
+keyTypeEl.addEventListener('change', () => setKeyType(keyTypeEl.value));
+keyTabs.forEach((tab) => {
+  tab.addEventListener('click', () => setKeyType(tab.dataset.keytype));
+});
+
+const updateJwksPicker = () => {
+  if (jwksPickerEl.hidden) {
+    return;
+  }
+  kidSelectEl.innerHTML = '';
+
+  let jwks;
+  try {
+    jwks = JSON.parse(keyEl.value);
+  } catch (err) {
+    kidSelectEl.disabled = true;
+    return;
+  }
+
+  const keys = jwks && typeof jwks === 'object' ? jwks.keys : null;
+  if (!Array.isArray(keys) || keys.length === 0) {
+    kidSelectEl.disabled = true;
+    return;
+  }
+
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = keys.length === 1 ? 'Single key' : 'Select kid...';
+  kidSelectEl.appendChild(placeholder);
+
+  keys.forEach((key, index) => {
+    const option = document.createElement('option');
+    const kid = key && typeof key === 'object' ? key.kid : null;
+    if (typeof kid === 'string' && kid.trim()) {
+      option.value = kid;
+      option.textContent = kid;
     } else {
-      keyEl.placeholder = 'Paste secret or key material';
-      kidEl.placeholder = 'Optional kid for JWKS';
+      option.value = '';
+      option.textContent = `Key ${index + 1} (no kid)`;
+      option.disabled = true;
     }
-
-    jwksPickerEl.hidden = noneAlg || keyType !== 'jwks';
-  };
-
-  algEl.addEventListener('change', updateKeyUi);
-  keyTypeEl.addEventListener('change', updateKeyUi);
-  updateKeyUi();
-
-  const updateJwksPicker = () => {
-    if (jwksPickerEl.hidden) {
-      return;
-    }
-    kidSelectEl.innerHTML = '';
-
-    let jwks;
-    try {
-      jwks = JSON.parse(keyEl.value);
-    } catch (err) {
-      kidSelectEl.disabled = true;
-      return;
-    }
-
-    const keys = jwks && typeof jwks === 'object' ? jwks.keys : null;
-    if (!Array.isArray(keys) || keys.length === 0) {
-      kidSelectEl.disabled = true;
-      return;
-    }
-
-    const placeholder = document.createElement('option');
-    placeholder.value = '';
-    placeholder.textContent = keys.length === 1 ? 'Single key' : 'Select kid…';
-    kidSelectEl.appendChild(placeholder);
-
-    keys.forEach((key, index) => {
-      const option = document.createElement('option');
-      const kid = key && typeof key === 'object' ? key.kid : null;
-      if (typeof kid === 'string' && kid.trim()) {
-        option.value = kid;
-        option.textContent = kid;
-      } else {
-        option.value = '';
-        option.textContent = `Key ${index + 1} (no kid)`;
-        option.disabled = true;
-      }
-      kidSelectEl.appendChild(option);
-    });
-
-    kidSelectEl.disabled = keys.length <= 1;
-  };
-
-  keyEl.addEventListener('input', updateJwksPicker);
-  keyTypeEl.addEventListener('change', updateJwksPicker);
-  updateJwksPicker();
-
-  kidSelectEl.addEventListener('change', () => {
-    const selected = kidSelectEl.value;
-    if (!selected) {
-      return;
-    }
-    kidEl.value = selected;
+    kidSelectEl.appendChild(option);
   });
 
-  formatHeaderEl.addEventListener('click', async () => {
-    await runAction(async () => {
-      formatJsonTextarea(headerEl, 'Header');
-      setStatus('Formatted header', 'ok');
+  kidSelectEl.disabled = keys.length <= 1;
+};
+
+const updateJwksViewer = () => {
+  jwksListEl.innerHTML = '';
+  jwksSummaryEl.textContent = '';
+
+  if (jwksViewerEl.hidden) {
+    return;
+  }
+
+  let jwks;
+  try {
+    jwks = JSON.parse(keyEl.value);
+  } catch (err) {
+    jwksViewerEl.hidden = true;
+    return;
+  }
+
+  const keys = jwks && typeof jwks === 'object' ? jwks.keys : null;
+  if (!Array.isArray(keys) || keys.length === 0) {
+    jwksViewerEl.hidden = true;
+    return;
+  }
+
+  jwksViewerEl.hidden = false;
+  jwksSummaryEl.textContent = `${keys.length} key${keys.length === 1 ? '' : 's'}`;
+
+  keys.forEach((key, index) => {
+    const li = document.createElement('li');
+    const kid = key && typeof key === 'object' ? key.kid : null;
+    const kty = key && typeof key === 'object' ? key.kty : null;
+    const alg = key && typeof key === 'object' ? key.alg : null;
+    const use = key && typeof key === 'object' ? key.use : null;
+
+    const tag = document.createElement('span');
+    tag.className = 'key-tag';
+    tag.textContent = kid && typeof kid === 'string' ? kid : `Key ${index + 1}`;
+
+    const meta = document.createElement('span');
+    meta.className = 'meta';
+    const metaParts = [kty, alg, use].filter((part) => typeof part === 'string' && part);
+    meta.textContent = metaParts.join(' · ');
+
+    li.appendChild(tag);
+    li.appendChild(meta);
+    jwksListEl.appendChild(li);
+  });
+};
+
+keyEl.addEventListener('input', () => {
+  updateJwksPicker();
+  updateJwksViewer();
+});
+keyTypeEl.addEventListener('change', () => {
+  updateJwksPicker();
+  updateJwksViewer();
+});
+
+kidSelectEl.addEventListener('change', () => {
+  const selected = kidSelectEl.value;
+  if (!selected) {
+    return;
+  }
+  kidEl.value = selected;
+});
+
+formatHeaderEl.addEventListener('click', async () => {
+  await runAction(async () => {
+    formatJsonTextarea(headerEl, 'Header');
+    setStatus('Formatted header', 'ok');
   });
 });
 
-  formatPayloadEl.addEventListener('click', async () => {
-    await runAction(async () => {
-      formatJsonTextarea(payloadEl, 'Payload');
-      setStatus('Formatted payload', 'ok');
-    });
+formatPayloadEl.addEventListener('click', async () => {
+  await runAction(async () => {
+    formatJsonTextarea(payloadEl, 'Payload');
+    setStatus('Formatted payload', 'ok');
   });
+});
 
-  formatKeyEl.addEventListener('click', async () => {
-    await runAction(async () => {
-      formatJsonTextarea(keyEl, 'Key');
-      setStatus('Formatted key JSON', 'ok');
-    });
+formatKeyEl.addEventListener('click', async () => {
+  await runAction(async () => {
+    formatJsonTextarea(keyEl, 'Key');
+    setStatus('Formatted key JSON', 'ok');
   });
+});
 
 document.addEventListener('keydown', async (event) => {
   const cmdOrCtrl = event.metaKey || event.ctrlKey;
@@ -626,25 +865,31 @@ document.addEventListener('keydown', async (event) => {
     await runAction(verify);
   }
 });
+
+setKeyType('secret');
+updateKeyUi();
+updateJwksPicker();
+updateJwksViewer();
 """
 
 
 _STYLES = """
 :root {
   color-scheme: light dark;
-  font-family: "SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Inter",
-    system-ui, sans-serif;
-  --bg: #0b0f1a;
-  --bg-glow: radial-gradient(circle at top, rgba(56, 189, 248, 0.18), transparent 45%);
-  --panel: rgba(17, 24, 39, 0.7);
-  --panel-border: rgba(148, 163, 184, 0.12);
+  font-family: "Space Grotesk", "Avenir Next", "Segoe UI", sans-serif;
+  --bg: #0b1118;
+  --bg-glow: radial-gradient(circle at top, rgba(20, 184, 166, 0.22), transparent 45%),
+    radial-gradient(circle at 20% 10%, rgba(245, 158, 11, 0.12), transparent 40%);
+  --panel: rgba(17, 24, 39, 0.72);
+  --panel-border: rgba(148, 163, 184, 0.16);
   --text: #f8fafc;
-  --muted: rgba(226, 232, 240, 0.7);
-  --accent-strong: #38bdf8;
-  --input-bg: rgba(15, 23, 42, 0.65);
-  --input-border: rgba(148, 163, 184, 0.2);
+  --muted: rgba(226, 232, 240, 0.72);
+  --accent: #14b8a6;
+  --accent-strong: #f59e0b;
+  --input-bg: rgba(15, 23, 42, 0.7);
+  --input-border: rgba(148, 163, 184, 0.24);
   --ghost-border: rgba(148, 163, 184, 0.4);
-  --shadow: 0 20px 50px rgba(15, 23, 42, 0.35);
+  --shadow: 0 24px 50px rgba(5, 10, 18, 0.45);
   --ok: rgba(34, 197, 94, 0.95);
   --error: rgba(248, 113, 113, 0.95);
   --warning: #fbbf24;
@@ -652,16 +897,17 @@ _STYLES = """
 
 @media (prefers-color-scheme: light) {
   :root {
-    --bg: #f7f8fb;
-    --bg-glow: radial-gradient(circle at top, rgba(56, 189, 248, 0.15), transparent 45%);
-    --panel: rgba(255, 255, 255, 0.75);
-    --panel-border: rgba(15, 23, 42, 0.1);
+    --bg: #f6f5f1;
+    --bg-glow: radial-gradient(circle at top, rgba(20, 184, 166, 0.18), transparent 50%),
+      radial-gradient(circle at 20% 20%, rgba(245, 158, 11, 0.12), transparent 50%);
+    --panel: rgba(255, 255, 255, 0.88);
+    --panel-border: rgba(15, 23, 42, 0.12);
     --text: #0b1220;
-    --muted: rgba(15, 23, 42, 0.65);
-    --input-bg: rgba(255, 255, 255, 0.9);
-    --input-border: rgba(15, 23, 42, 0.14);
-    --ghost-border: rgba(15, 23, 42, 0.22);
-    --shadow: 0 20px 50px rgba(15, 23, 42, 0.08);
+    --muted: rgba(15, 23, 42, 0.6);
+    --input-bg: rgba(255, 255, 255, 0.95);
+    --input-border: rgba(15, 23, 42, 0.16);
+    --ghost-border: rgba(15, 23, 42, 0.25);
+    --shadow: 0 24px 40px rgba(15, 23, 42, 0.08);
   }
 }
 
@@ -672,20 +918,20 @@ _STYLES = """
 body {
   margin: 0;
   padding: 0;
-  background: var(--bg);
-  color: var(--text);
   min-height: 100vh;
+  background: var(--bg);
   background-image: var(--bg-glow);
+  color: var(--text);
 }
 
 .container {
-  width: min(1100px, 100%);
+  width: min(1120px, 100%);
   margin: 0 auto;
   padding: 0 24px;
 }
 
 .site-header {
-  padding: 48px 0 16px;
+  padding: 48px 0 24px;
 }
 
 .header-content {
@@ -698,15 +944,15 @@ body {
 
 .eyebrow {
   text-transform: uppercase;
-  letter-spacing: 0.2em;
-  font-size: 0.7rem;
+  letter-spacing: 0.26em;
+  font-size: 0.68rem;
   color: var(--muted);
   margin: 0 0 12px;
 }
 
 .site-header h1 {
   margin: 0 0 12px;
-  font-size: clamp(2rem, 3vw, 2.6rem);
+  font-size: clamp(2rem, 4vw, 2.8rem);
   font-weight: 600;
 }
 
@@ -714,14 +960,14 @@ body {
   margin: 0;
   color: var(--muted);
   font-size: 1rem;
-  max-width: 520px;
+  max-width: 560px;
 }
 
 .status-chip {
   border-radius: 999px;
   padding: 8px 16px;
   border: 1px solid var(--panel-border);
-  background: rgba(15, 23, 42, 0.06);
+  background: rgba(15, 23, 42, 0.16);
   font-size: 0.85rem;
   color: var(--muted);
   white-space: nowrap;
@@ -730,27 +976,26 @@ body {
 .panels {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 20px;
-  padding: 16px 0 32px;
+  gap: 18px;
+  padding-bottom: 24px;
 }
 
 .panel {
   background: var(--panel);
-  padding: 20px;
-  border-radius: 18px;
+  padding: 18px;
+  border-radius: 16px;
   border: 1px solid var(--panel-border);
-  box-shadow: var(--shadow);
   display: flex;
   flex-direction: column;
   gap: 12px;
   min-height: 420px;
-  backdrop-filter: blur(12px);
+  box-shadow: var(--shadow);
 }
 
 .panel-header {
   display: flex;
+  align-items: flex-start;
   justify-content: space-between;
-  align-items: baseline;
   gap: 12px;
 }
 
@@ -761,9 +1006,9 @@ body {
 }
 
 .panel-meta {
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   text-transform: uppercase;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.16em;
   color: var(--muted);
 }
 
@@ -782,17 +1027,8 @@ select {
   border: 1px solid var(--input-border);
   background: var(--input-bg);
   color: var(--text);
-  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-    "Liberation Mono", "Courier New", monospace;
-  transition: border 0.2s ease, box-shadow 0.2s ease;
-}
-
-textarea:focus,
-input:focus,
-select:focus {
-  outline: none;
-  border-color: rgba(56, 189, 248, 0.5);
-  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.15);
+  font-family: "IBM Plex Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo,
+    Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
 
 textarea {
@@ -807,8 +1043,9 @@ textarea {
   gap: 12px;
 }
 
-.output-header button {
-  white-space: nowrap;
+.output-header .meta {
+  font-size: 0.8rem;
+  color: var(--muted);
 }
 
 .status {
@@ -827,19 +1064,19 @@ textarea {
 }
 
 button {
-  background: var(--accent-strong);
-  color: #0b0f1a;
+  background: var(--accent);
+  color: #0b1220;
   border: none;
-  border-radius: 999px;
-  padding: 10px 18px;
+  border-radius: 10px;
+  padding: 10px 16px;
   cursor: pointer;
   font-weight: 600;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-  box-shadow: 0 10px 20px rgba(56, 189, 248, 0.2);
+  transition: transform 0.15s ease, filter 0.15s ease;
 }
 
 button:hover {
   transform: translateY(-1px);
+  filter: brightness(1.05);
 }
 
 button:active {
@@ -863,7 +1100,7 @@ button.ghost {
 .toolbar,
 .row {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
 }
 
@@ -876,10 +1113,49 @@ button.ghost {
   flex: 1 1 180px;
 }
 
+.row > * {
+  flex: 1;
+}
+
+.row-inline {
+  display: flex;
+  gap: 8px;
+  flex: 2;
+}
+
+.row-inline select {
+  flex: 1;
+}
+
 .policy {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tab {
+  background: transparent;
+  border: 1px solid var(--ghost-border);
+  color: var(--text);
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+}
+
+.tab.active {
+  background: rgba(20, 184, 166, 0.2);
+  border-color: rgba(20, 184, 166, 0.6);
+  color: var(--text);
+}
+
+.preset-row label {
+  flex: 1;
 }
 
 .jwks-picker {
@@ -888,12 +1164,43 @@ button.ghost {
   gap: 8px;
 }
 
-.toolbar.secondary {
-  flex-wrap: wrap;
+.jwks-viewer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.row > * {
-  flex: 1;
+.jwks-viewer ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.jwks-viewer li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--panel-border);
+  background: rgba(15, 23, 42, 0.2);
+}
+
+.key-tag {
+  font-size: 0.8rem;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--ghost-border);
+  background: rgba(15, 23, 42, 0.3);
+}
+
+.meta {
+  color: var(--muted);
+  font-size: 0.8rem;
 }
 
 #warnings {
@@ -902,10 +1209,33 @@ button.ghost {
   color: var(--warning);
 }
 
-.site-footer {
-  padding: 0 0 32px;
+.footer {
+  padding-bottom: 32px;
   color: var(--muted);
-  font-size: 0.9rem;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 768px) {
+  .row,
+  .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .row-inline {
+    flex-direction: column;
+  }
 }
 """
 
@@ -1098,6 +1428,65 @@ class JWTWorkbenchHandler(BaseHTTPRequestHandler):
                     }
                 )
                 return
+            if self.path == "/api/key-preset":
+                kind = payload.get("kind")
+                if kind not in {"pem-private", "pem-public", "jwk", "jwks"}:
+                    raise ValueError("unknown key preset")
+
+                private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+                private_pem = private_key.private_bytes(
+                    encoding=serialization.Encoding.PEM,
+                    format=serialization.PrivateFormat.PKCS8,
+                    encryption_algorithm=serialization.NoEncryption(),
+                ).decode("utf-8")
+                public_pem = (
+                    private_key.public_key()
+                    .public_bytes(
+                        encoding=serialization.Encoding.PEM,
+                        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+                    )
+                    .decode("utf-8")
+                )
+
+                if kind == "pem-private":
+                    self._send_json({"key_type": "pem", "key_text": private_pem, "alg": "RS256"})
+                    return
+                if kind == "pem-public":
+                    self._send_json({"key_type": "pem", "key_text": public_pem, "alg": "RS256"})
+                    return
+
+                jwk = jwk_from_pem(public_pem, kid="demo-k1")
+                if kind == "jwk":
+                    self._send_json(
+                        {
+                            "key_type": "jwk",
+                            "key_text": json.dumps(jwk, indent=2, sort_keys=True),
+                            "kid": "demo-k1",
+                            "alg": "RS256",
+                        }
+                    )
+                    return
+
+                other_private = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+                other_public_pem = (
+                    other_private.public_key()
+                    .public_bytes(
+                        encoding=serialization.Encoding.PEM,
+                        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+                    )
+                    .decode("utf-8")
+                )
+                jwk2 = jwk_from_pem(other_public_pem, kid="demo-k2")
+                jwks = {"keys": [jwk, jwk2]}
+                self._send_json(
+                    {
+                        "key_type": "jwks",
+                        "key_text": json.dumps(jwks, indent=2, sort_keys=True),
+                        "kid": "demo-k1",
+                        "alg": "RS256",
+                    }
+                )
+                return
             if self.path == "/api/decode":
                 token = str(payload.get("token", "")).strip()
                 if not token:
@@ -1135,21 +1524,39 @@ class JWTWorkbenchHandler(BaseHTTPRequestHandler):
                         aud = [item for item in aud if item.strip()]
                         if not aud:
                             aud = None
-                if iss is not None and not isinstance(iss, str):
-                    raise ValueError("iss must be a string")
+                if iss is not None and not isinstance(iss, (str, list)):
+                    raise ValueError("iss must be a string or list of strings")
+                if isinstance(iss, list):
+                    if not iss:
+                        iss = None
+                    elif not all(isinstance(item, str) for item in iss):
+                        raise ValueError("iss must be a string or list of strings")
+                    else:
+                        iss = [item for item in iss if item.strip()]
+                        if not iss:
+                            iss = None
+                if isinstance(iss, str) and not iss.strip():
+                    iss = None
                 if kid is not None and not isinstance(kid, str):
                     raise ValueError("kid must be a string")
+                if isinstance(leeway, str) and leeway.strip().isdigit():
+                    leeway = int(leeway)
                 if not isinstance(leeway, int) or leeway < 0:
                     raise ValueError("leeway must be a non-negative integer")
                 key = load_key_from_material(key_text, str(alg), key_type, kid=kid)
-                header, data = verify_token_with_key(
-                    token,
-                    key=key,
-                    alg=alg,
-                    audience=aud or None,
-                    issuer=iss or None,
-                    leeway=leeway,
-                )
+                try:
+                    header, data = verify_token_with_key(
+                        token,
+                        key=key,
+                        alg=alg,
+                        audience=aud or None,
+                        issuer=iss or None,
+                        leeway=leeway,
+                    )
+                except jwt_exceptions.PyJWTError as exc:
+                    raise ValueError(
+                        format_jwt_error(exc, audience=aud or None, issuer=iss or None)
+                    ) from exc
                 hmac_len = infer_hmac_key_len(None, key_text) if key_type == "secret" else None
                 warnings = analyze_claims(data, header, hmac_key_len=hmac_len)
                 self._send_json({"header": header, "payload": data, "warnings": warnings})
@@ -1214,7 +1621,7 @@ class JWTWorkbenchHandler(BaseHTTPRequestHandler):
         except ValueError as exc:
             self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
         except jwt_exceptions.PyJWTError as exc:
-            self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            self._send_json({"error": format_jwt_error(exc)}, status=HTTPStatus.BAD_REQUEST)
         except Exception as exc:
             self.log_error("Unhandled error: %r", exc)
             self._send_json(

@@ -1,3 +1,23 @@
+## 2026-02-03
+
+### Summary
+
+- Fixed the web UI merge conflict and refreshed the layout with key-type tabs and presets.
+- Web UI adds a JWKS viewer plus improved key picker for multi-key JWKS.
+- Verification now supports issuer allowlists (repeatable/CSV) and clearer claim mismatch errors (CLI + web).
+- CLI adds optional offline JWKS cache files for verification workflows.
+
+### How to verify
+
+```bash
+make check
+python -m jwt_workbench verify --token "$JWT" --key-text "secret123" --iss "iss-1" --iss "iss-2"
+python -m jwt_workbench verify --token "$JWT" --jwks ./jwks.json --jwks-cache ~/.cache/jwt-workbench/jwks.json --kid my-kid
+python -m jwt_workbench serve --port 8000
+```
+
+Then open `http://127.0.0.1:8000` and try the key tabs, presets, and JWKS viewer.
+
 ## 2026-02-01
 
 ### Summary

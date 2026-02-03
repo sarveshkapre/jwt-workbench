@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Web UI: key-type tabs, key presets, and a JWKS viewer.
+- Verification: issuer allowlists (repeatable/CSV) and clearer claim mismatch errors.
+- CLI: optional offline JWKS cache file support.
 - Add optional `aud`/`iss` verification and `leeway` (clock skew) to JWT verification (CLI + web).
 - Web UI: copy-to-clipboard buttons, keyboard shortcuts, and light/dark theme support.
 - Web UI: JSON format buttons for header/payload and client-side JSON validation before signing.

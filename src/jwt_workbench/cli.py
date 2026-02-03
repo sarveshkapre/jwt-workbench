@@ -14,6 +14,7 @@ from jwt import exceptions as jwt_exceptions
 from .core import (
     analyze_claims,
     decode_token,
+    format_jwt_error,
     infer_hmac_key_len,
     jwk_from_pem,
     jwks_from_pem,
@@ -225,18 +226,36 @@ def _cmd_verify(args: argparse.Namespace) -> int:
             audience = items[0]
         else:
             audience = items
-    header, payload = verify_token(
-        token=_load_token(args.token),
-        key_path=args.key,
-        key_text=key_text,
-        jwk_path=args.jwk,
-        jwks_path=args.jwks,
-        kid=args.kid,
-        alg=args.alg,
-        audience=audience,
-        issuer=args.iss,
-        leeway=args.leeway,
-    )
+    issuer: str | list[str] | None
+    if not args.iss:
+        issuer = None
+    else:
+        iss_items: list[str] = []
+        for raw in args.iss:
+            iss_items.extend([part.strip() for part in str(raw).split(",") if part.strip()])
+        if not iss_items:
+            issuer = None
+        elif len(iss_items) == 1:
+            issuer = iss_items[0]
+        else:
+            issuer = iss_items
+
+    try:
+        header, payload = verify_token(
+            token=_load_token(args.token),
+            key_path=args.key,
+            key_text=key_text,
+            jwk_path=args.jwk,
+            jwks_path=args.jwks,
+            jwks_cache_path=args.jwks_cache,
+            kid=args.kid,
+            alg=args.alg,
+            audience=audience,
+            issuer=issuer,
+            leeway=args.leeway,
+        )
+    except jwt_exceptions.PyJWTError as exc:
+        raise ValueError(format_jwt_error(exc, audience=audience, issuer=issuer)) from exc
     _emit_warnings(payload, header, hmac_len)
     _print_json({"valid": True, "header": header, "payload": payload})
     return 0
@@ -318,13 +337,21 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_verify.add_argument("--jwk", help="Path to JWK JSON file")
     p_verify.add_argument("--jwks", help="Path to JWKS JSON file")
+    p_verify.add_argument(
+        "--jwks-cache",
+        help="Path to JWKS cache file (read from cache if jwks not provided; writes on verify)",
+    )
     p_verify.add_argument("--kid", help="Key ID to select from JWKS")
     p_verify.add_argument(
         "--aud",
         action="append",
         help="Expected audience (repeatable or comma-separated; enables aud claim verification)",
     )
-    p_verify.add_argument("--iss", help="Expected issuer (enables iss claim verification)")
+    p_verify.add_argument(
+        "--iss",
+        action="append",
+        help="Expected issuer (repeatable or comma-separated; enables iss claim verification)",
+    )
     p_verify.add_argument(
         "--leeway",
         type=int,
