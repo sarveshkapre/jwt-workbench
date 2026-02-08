@@ -8,4 +8,6 @@
 
 ## Next
 
-- TBD
+- Add ES256/EdDSA verification/signing support with safe key parsing.
+- Add JWT export/redaction helpers for safer bug-report sharing.
+- Add optional policy profiles (strict/default/legacy) for verification presets.

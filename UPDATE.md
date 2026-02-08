@@ -1,3 +1,23 @@
+## 2026-02-08
+
+### Summary
+
+- Added required-claims verification policy support for CLI and web API (`exp`, `nbf`, `iat`, `aud`, `iss`).
+- Hardened web API request handling with JSON content-type validation, request body size limits, and no-store/security response headers.
+- Refactored demo sample/key-preset generation into shared helpers to keep CLI and web behavior aligned.
+- Added new integration coverage: web API endpoint tests and an end-to-end local `serve` smoke flow.
+- Improved CLI input validation for key-source conflicts and rejected key material for `alg=none` signing.
+
+### How to verify
+
+```bash
+make check
+python -m jwt_workbench verify --token "$JWT" --key-text "secret123" --require exp --require aud,iss
+python -m jwt_workbench serve --port 8000
+```
+
+Then open `http://127.0.0.1:8000` and verify with `Required claims` populated.
+
 ## 2026-02-03
 
 ### Summary

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Verification: add required-claims policy support (`--require` / web `require`) for `exp`, `nbf`, `iat`, `aud`, and `iss`.
+- CLI: enforce clearer key-source validation (mutually exclusive key inputs for verify/sign, and reject key material for `alg=none`).
+- Web API: add request hardening (JSON content-type enforcement, request body size cap, incomplete body checks) and no-store response headers.
+- Refactor: move sample/key-preset generation into shared helpers used by CLI and web paths.
+- Tests: add dedicated web API integration tests and a real `serve` smoke flow.
 - Web UI: key-type tabs, key presets, and a JWKS viewer.
 - Verification: issuer allowlists (repeatable/CSV) and clearer claim mismatch errors.
 - CLI: optional offline JWKS cache file support.
