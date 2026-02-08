@@ -3,12 +3,9 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-import time
 from pathlib import Path
 from typing import Any
 
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
 from jwt import exceptions as jwt_exceptions
 
 from .core import (
@@ -21,6 +18,7 @@ from .core import (
     sign_token,
     verify_token,
 )
+from .samples import generate_sample
 from .web import serve
 
 
@@ -90,6 +88,59 @@ def _emit_warnings(
         print(f"warning: {w}", file=sys.stderr)
 
 
+def _parse_allowlist(values: list[str] | None) -> str | list[str] | None:
+    if not values:
+        return None
+    items: list[str] = []
+    for raw in values:
+        items.extend(part.strip() for part in str(raw).split(",") if part.strip())
+    if not items:
+        return None
+    if len(items) == 1:
+        return items[0]
+    return items
+
+
+def _parse_required_claims(values: list[str] | None) -> list[str] | None:
+    if not values:
+        return None
+    items: list[str] = []
+    for raw in values:
+        items.extend(part.strip() for part in str(raw).split(",") if part.strip())
+    if not items:
+        return None
+    return list(dict.fromkeys(items))
+
+
+def _validate_verify_args(args: argparse.Namespace) -> None:
+    if args.key and args.key_text is not None:
+        raise ValueError("use only one of --key or --key-text")
+
+    use_local_key = bool(args.key or args.key_text is not None)
+    use_jwk = bool(args.jwk)
+    use_jwks = bool(args.jwks or args.jwks_cache)
+    selected = int(use_local_key) + int(use_jwk) + int(use_jwks)
+    if selected > 1:
+        raise ValueError(
+            "provide one key source: (--key/--key-text) or --jwk or (--jwks/--jwks-cache)"
+        )
+    if selected == 0:
+        raise ValueError(
+            "missing key material; provide --key, --key-text, --jwk, --jwks, or --jwks-cache"
+        )
+
+
+def _validate_sign_args(args: argparse.Namespace) -> None:
+    if args.key and args.key_text is not None:
+        raise ValueError("use only one of --key or --key-text")
+    if args.alg == "none":
+        if args.key or args.key_text is not None:
+            raise ValueError("alg=none does not accept key material")
+        return
+    if not args.key and args.key_text is None:
+        raise ValueError("missing key material; provide --key or --key-text")
+
+
 def _cmd_decode(args: argparse.Namespace) -> int:
     header, payload = decode_token(_load_token(args.token))
     _emit_warnings(payload, header)
@@ -106,103 +157,28 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
 
 
 def _cmd_sample(args: argparse.Namespace) -> int:
-    now = int(time.time())
-    payload: dict[str, Any] = {
-        "sub": "demo-user",
-        "aud": "demo-aud",
-        "iss": "demo-iss",
-        "iat": now,
-        "exp": now + int(args.exp_seconds),
+    sample = generate_sample(str(args.kind), exp_seconds=int(args.exp_seconds))
+    output: dict[str, Any] = {
+        "kind": sample["kind"],
+        "alg": sample["alg"],
+        "token": sample["token"],
+        "header": sample["header"],
+        "payload": sample["payload"],
+        "warnings": sample["warnings"],
     }
-
-    kind = str(args.kind)
-    if kind == "none":
-        token = sign_token(payload, key_path=None, key_text=None, alg="none", kid=None)
-        header, decoded = decode_token(token)
-        _print_json(
-            {
-                "kind": kind,
-                "alg": "none",
-                "token": token,
-                "header": header,
-                "payload": decoded,
-                "warnings": analyze_claims(decoded, header),
-            }
-        )
-        return 0
-
-    if kind == "hs256":
-        secret = "demo-secret-please-change"
-        token = sign_token(payload, key_path=None, key_text=secret, alg="HS256", kid=None)
-        header, decoded = decode_token(token)
-        _print_json(
-            {
-                "kind": kind,
-                "alg": "HS256",
-                "token": token,
-                "header": header,
-                "payload": decoded,
-                "warnings": analyze_claims(
-                    decoded, header, hmac_key_len=len(secret.encode("utf-8"))
-                ),
-                "verify_key": {"key_type": "secret", "key_text": secret},
-            }
-        )
-        return 0
-
-    if kind not in {"rs256-pem", "rs256-jwks"}:
-        raise SystemExit(f"unknown sample kind: {kind}")
-
-    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    private_pem = private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.NoEncryption(),
-    ).decode("utf-8")
-    public_pem = (
-        private_key.public_key()
-        .public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo,
-        )
-        .decode("utf-8")
-    )
-
-    token = sign_token(payload, key_path=None, key_text=private_pem, alg="RS256", kid="demo-k1")
-    header, decoded = decode_token(token)
-    base: dict[str, Any] = {
-        "kind": kind,
-        "alg": "RS256",
-        "token": token,
-        "header": header,
-        "payload": decoded,
-        "warnings": analyze_claims(decoded, header),
-        "kid": "demo-k1",
-        "verify_key": {"key_type": "pem", "key_text": public_pem},
-        "sign_key": {"key_type": "pem", "key_text": private_pem},
-    }
-
-    if kind == "rs256-pem":
-        _print_json(base)
-        return 0
-
-    jwk1 = jwk_from_pem(public_pem, kid="demo-k1")
-    other_private = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    other_public_pem = (
-        other_private.public_key()
-        .public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo,
-        )
-        .decode("utf-8")
-    )
-    jwk2 = jwk_from_pem(other_public_pem, kid="demo-k2")
-    base["jwks"] = {"keys": [jwk1, jwk2]}
-    _print_json(base)
+    if sample["kind"] in {"hs256", "rs256-pem", "rs256-jwks"}:
+        output["verify_key"] = sample["verify_key"]
+    if sample["kind"] in {"rs256-pem", "rs256-jwks"}:
+        output["kid"] = sample["kid"]
+        output["sign_key"] = sample["sign_key"]
+    if sample["kind"] == "rs256-jwks":
+        output["jwks"] = sample["jwks"]
+    _print_json(output)
     return 0
 
 
 def _cmd_verify(args: argparse.Namespace) -> int:
+    _validate_verify_args(args)
     if args.token == "-" and args.key_text == "-":
         raise ValueError("cannot read both token and key from stdin; provide one normally")
 
@@ -213,32 +189,9 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         key_text = _load_text(args.key_text, "key material")
 
     hmac_len = infer_hmac_key_len(args.key, key_text)
-    audience: str | list[str] | None
-    if not args.aud:
-        audience = None
-    else:
-        items: list[str] = []
-        for raw in args.aud:
-            items.extend([part.strip() for part in str(raw).split(",") if part.strip()])
-        if not items:
-            audience = None
-        elif len(items) == 1:
-            audience = items[0]
-        else:
-            audience = items
-    issuer: str | list[str] | None
-    if not args.iss:
-        issuer = None
-    else:
-        iss_items: list[str] = []
-        for raw in args.iss:
-            iss_items.extend([part.strip() for part in str(raw).split(",") if part.strip()])
-        if not iss_items:
-            issuer = None
-        elif len(iss_items) == 1:
-            issuer = iss_items[0]
-        else:
-            issuer = iss_items
+    audience = _parse_allowlist(args.aud)
+    issuer = _parse_allowlist(args.iss)
+    required_claims = _parse_required_claims(args.require)
 
     try:
         header, payload = verify_token(
@@ -253,6 +206,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
             audience=audience,
             issuer=issuer,
             leeway=args.leeway,
+            required_claims=required_claims,
         )
     except jwt_exceptions.PyJWTError as exc:
         raise ValueError(format_jwt_error(exc, audience=audience, issuer=issuer)) from exc
@@ -262,6 +216,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
 
 
 def _cmd_sign(args: argparse.Namespace) -> int:
+    _validate_sign_args(args)
     payload = _load_payload(args)
     key_text: str | None = args.key_text
     if args.alg != "none" and args.key_text == "-":
@@ -357,6 +312,14 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=0,
         help="Clock skew in seconds when verifying exp/nbf/iat (default: 0)",
+    )
+    p_verify.add_argument(
+        "--require",
+        action="append",
+        help=(
+            "Require claim(s) to exist (repeatable or comma-separated; supported: exp, nbf, "
+            "iat, aud, iss)"
+        ),
     )
     p_verify.set_defaults(func=_cmd_verify)
 

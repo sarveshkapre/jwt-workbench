@@ -14,6 +14,8 @@ from cryptography.hazmat.primitives.serialization import (
 from jwt import algorithms
 from jwt import exceptions as jwt_exceptions
 
+_SUPPORTED_REQUIRED_CLAIMS = frozenset({"exp", "nbf", "iat", "aud", "iss"})
+
 
 def decode_token(token: str) -> tuple[dict[str, Any], dict[str, Any]]:
     header = jwt.get_unverified_header(token)
@@ -95,6 +97,36 @@ def _enforce_issuer_allowlist(payload: dict[str, Any], issuers: list[str]) -> No
         raise jwt_exceptions.InvalidIssuerError(f"iss claim mismatch (expected one of: {expected})")
 
 
+def _normalize_required_claims(
+    required_claims: str | list[str] | None,
+) -> list[str] | None:
+    if required_claims is None:
+        return None
+    items: list[str] = []
+    if isinstance(required_claims, str):
+        items = [part.strip() for part in required_claims.split(",")]
+    elif isinstance(required_claims, list):
+        for item in required_claims:
+            if not isinstance(item, str):
+                raise ValueError("required claims must be strings")
+            items.extend(part.strip() for part in item.split(","))
+    else:
+        raise ValueError("required claims must be a string or list of strings")
+
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        if not item:
+            continue
+        if item not in _SUPPORTED_REQUIRED_CLAIMS:
+            supported = ", ".join(sorted(_SUPPORTED_REQUIRED_CLAIMS))
+            raise ValueError(f"unsupported required claim: {item} (supported: {supported})")
+        if item not in seen:
+            seen.add(item)
+            cleaned.append(item)
+    return cleaned or None
+
+
 def _load_jwks_from_paths(
     jwks_path: str | None,
     jwks_cache_path: str | None,
@@ -144,6 +176,7 @@ def verify_token_with_key(
     audience: str | list[str] | None = None,
     issuer: str | list[str] | None = None,
     leeway: int = 0,
+    required_claims: str | list[str] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     header = jwt.get_unverified_header(token)
     alg = alg or header.get("alg")
@@ -152,6 +185,13 @@ def verify_token_with_key(
     if alg == "none":
         raise ValueError("refusing to verify alg=none")
     issuer_value, issuer_allowlist = _normalize_allowlist(issuer)
+    required = _normalize_required_claims(required_claims)
+    options: dict[str, Any] = {
+        "verify_aud": audience is not None,
+        "verify_iss": issuer_value is not None,
+    }
+    if required:
+        options["require"] = required
     payload = jwt.decode(
         token,
         key=key,
@@ -159,10 +199,7 @@ def verify_token_with_key(
         audience=audience,
         issuer=issuer_value,
         leeway=leeway,
-        options={
-            "verify_aud": audience is not None,
-            "verify_iss": issuer_value is not None,
-        },
+        options=options,
     )
     if issuer_allowlist:
         _enforce_issuer_allowlist(payload, issuer_allowlist)
@@ -181,6 +218,7 @@ def verify_token(
     issuer: str | list[str] | None = None,
     leeway: int = 0,
     jwks_cache_path: str | None = None,
+    required_claims: str | list[str] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     header = jwt.get_unverified_header(token)
     alg = alg or header.get("alg")
@@ -201,9 +239,18 @@ def verify_token(
     elif key_text:
         key = _load_key_from_text(key_text, alg)
     else:
-        raise ValueError("missing key material; provide --key, --key-text, --jwk, or --jwks")
+        raise ValueError(
+            "missing key material; provide --key, --key-text, --jwk, --jwks, or --jwks-cache"
+        )
 
     issuer_value, issuer_allowlist = _normalize_allowlist(issuer)
+    required = _normalize_required_claims(required_claims)
+    options: dict[str, Any] = {
+        "verify_aud": audience is not None,
+        "verify_iss": issuer_value is not None,
+    }
+    if required:
+        options["require"] = required
     payload = jwt.decode(
         token,
         key=key,
@@ -211,10 +258,7 @@ def verify_token(
         audience=audience,
         issuer=issuer_value,
         leeway=leeway,
-        options={
-            "verify_aud": audience is not None,
-            "verify_iss": issuer_value is not None,
-        },
+        options=options,
     )
     if issuer_allowlist:
         _enforce_issuer_allowlist(payload, issuer_allowlist)
@@ -381,6 +425,11 @@ def format_jwt_error(
         return _format_allowlist("aud", audience)
     if isinstance(exc, jwt_exceptions.InvalidIssuerError):
         return _format_allowlist("iss", issuer)
+    if isinstance(exc, jwt_exceptions.MissingRequiredClaimError):
+        claim = getattr(exc, "claim", None)
+        if isinstance(claim, str) and claim:
+            return f"missing required claim: {claim}"
+        return "missing required claim"
     if isinstance(exc, jwt_exceptions.InvalidSignatureError):
         return "signature verification failed"
     if isinstance(exc, jwt_exceptions.DecodeError):

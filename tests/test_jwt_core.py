@@ -218,6 +218,63 @@ def test_verify_issuer_allowlist() -> None:
         )
 
 
+def test_verify_required_claims() -> None:
+    payload = {"sub": "required-user", "aud": "required-aud", "exp": int(time.time()) + 60}
+    token = sign_token(payload, key_path=None, key_text="secret123", alg="HS256", kid=None)
+    header, verified = verify_token(
+        token=token,
+        key_path=None,
+        key_text="secret123",
+        jwk_path=None,
+        jwks_path=None,
+        jwks_cache_path=None,
+        kid=None,
+        alg="HS256",
+        audience=None,
+        issuer=None,
+        leeway=0,
+        required_claims=["exp", "aud"],
+    )
+    assert header["alg"] == "HS256"
+    assert verified["aud"] == "required-aud"
+
+    with pytest.raises(jwt_exceptions.MissingRequiredClaimError):
+        verify_token(
+            token=token,
+            key_path=None,
+            key_text="secret123",
+            jwk_path=None,
+            jwks_path=None,
+            jwks_cache_path=None,
+            kid=None,
+            alg="HS256",
+            audience=None,
+            issuer=None,
+            leeway=0,
+            required_claims=["iss"],
+        )
+
+
+def test_verify_invalid_required_claim_name() -> None:
+    payload = {"sub": "required-user", "exp": int(time.time()) + 60}
+    token = sign_token(payload, key_path=None, key_text="secret123", alg="HS256", kid=None)
+    with pytest.raises(ValueError):
+        verify_token(
+            token=token,
+            key_path=None,
+            key_text="secret123",
+            jwk_path=None,
+            jwks_path=None,
+            jwks_cache_path=None,
+            kid=None,
+            alg="HS256",
+            audience=None,
+            issuer=None,
+            leeway=0,
+            required_claims=["sub"],
+        )
+
+
 def test_jwks_cache_file(tmp_path: Path) -> None:
     private_pem, public_pem = _rsa_keypair()
     payload = {"sub": "cache-user", "exp": int(time.time()) + 60}

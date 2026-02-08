@@ -1,8 +1,28 @@
 from __future__ import annotations
 
 import json
+import socket
 import subprocess
 import sys
+import time
+import urllib.request
+
+
+def _find_free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _wait_for_server(url: str, timeout_seconds: float = 5.0) -> None:
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=0.5):
+                return
+        except Exception:
+            time.sleep(0.1)
+    raise AssertionError(f"server did not start: {url}")
 
 
 def test_help() -> None:
@@ -133,3 +153,126 @@ def test_sign_accepts_headers() -> None:
     assert decoded.returncode == 0
     header = json.loads(decoded.stdout)["header"]
     assert header["foo"] == "bar"
+
+
+def test_verify_required_claim_flag() -> None:
+    signed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "jwt_workbench",
+            "sign",
+            "--alg",
+            "HS256",
+            "--payload",
+            '{"sub":"x","exp":2000000000}',
+            "--key-text",
+            "secret123",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert signed.returncode == 0
+    token = signed.stdout.strip()
+
+    verified = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "jwt_workbench",
+            "verify",
+            "--token",
+            token,
+            "--alg",
+            "HS256",
+            "--key-text",
+            "secret123",
+            "--require",
+            "iss",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert verified.returncode != 0
+    assert "missing required claim: iss" in verified.stderr.lower()
+
+
+def test_verify_rejects_conflicting_key_inputs() -> None:
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "jwt_workbench",
+            "verify",
+            "--token",
+            "x.y.z",
+            "--alg",
+            "HS256",
+            "--key",
+            "secret.txt",
+            "--key-text",
+            "secret123",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode != 0
+    assert "use only one of --key or --key-text" in proc.stderr
+
+
+def test_sign_none_rejects_key_material() -> None:
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "jwt_workbench",
+            "sign",
+            "--alg",
+            "none",
+            "--payload",
+            '{"sub":"x"}',
+            "--key-text",
+            "ignored",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode != 0
+    assert "alg=none does not accept key material" in proc.stderr
+
+
+def test_serve_smoke_http_flow() -> None:
+    port = _find_free_port()
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "jwt_workbench", "serve", "--port", str(port)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        text=True,
+    )
+    try:
+        base_url = f"http://127.0.0.1:{port}"
+        _wait_for_server(base_url + "/")
+        with urllib.request.urlopen(base_url + "/", timeout=2) as response:
+            html = response.read().decode("utf-8")
+            assert "JWT Workbench" in html
+
+        request = urllib.request.Request(
+            base_url + "/api/sample",
+            data=json.dumps({"kind": "hs256"}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=2) as response:
+            sample = json.loads(response.read().decode("utf-8"))
+            assert sample["alg"] == "HS256"
+            assert sample["key_type"] == "secret"
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()

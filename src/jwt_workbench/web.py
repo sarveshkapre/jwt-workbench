@@ -1,13 +1,10 @@
 from __future__ import annotations
 
 import json
-import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
 from jwt import exceptions as jwt_exceptions
 
 from .core import (
@@ -20,6 +17,12 @@ from .core import (
     load_key_from_material,
     sign_token,
     verify_token_with_key,
+)
+from .samples import (
+    SUPPORTED_KEY_PRESET_KINDS,
+    SUPPORTED_SAMPLE_KINDS,
+    generate_key_preset,
+    generate_sample,
 )
 
 _INDEX_HTML = """
@@ -106,6 +109,15 @@ _INDEX_HTML = """
           <div class="row">
             <label for="leeway">Clock skew (s)</label>
             <input id="leeway" inputmode="numeric" pattern="[0-9]*" placeholder="0" />
+          </div>
+          <div class="row">
+            <label for="requireClaims">Required claims</label>
+            <input
+              id="requireClaims"
+              placeholder="Comma-separated (exp,aud,iss)"
+              spellcheck="false"
+              autocapitalize="off"
+            />
           </div>
         </div>
       </section>
@@ -242,6 +254,7 @@ const jwkOutputEl = document.getElementById('jwkOutput');
 const audEl = document.getElementById('aud');
 const issEl = document.getElementById('iss');
 const leewayEl = document.getElementById('leeway');
+const requireClaimsEl = document.getElementById('requireClaims');
 const copyTokenEl = document.getElementById('copyToken');
 const copyJwkOutputEl = document.getElementById('copyJwkOutput');
 const formatHeaderEl = document.getElementById('formatHeader');
@@ -403,6 +416,17 @@ const parseListInput = (value) => {
   return parts;
 };
 
+const parseClaimRequirements = (value) => {
+  const parsed = parseListInput(value);
+  if (parsed === null) {
+    return null;
+  }
+  if (typeof parsed === 'string') {
+    return [parsed];
+  }
+  return Array.from(new Set(parsed));
+};
+
 const request = async (path, body) => {
   const response = await fetch(path, {
     method: 'POST',
@@ -475,6 +499,7 @@ const verify = async () => {
 
   const aud = parseListInput(audEl.value);
   const iss = parseListInput(issEl.value);
+  const requireClaims = parseClaimRequirements(requireClaimsEl.value);
 
   const data = await request('/api/verify', {
     token,
@@ -485,6 +510,7 @@ const verify = async () => {
     aud,
     iss,
     leeway,
+    require: requireClaims,
   });
   headerEl.value = JSON.stringify(data.header, null, 2);
   payloadEl.value = JSON.stringify(data.payload, null, 2);
@@ -644,6 +670,7 @@ clearAllEl.addEventListener('click', async () => {
     audEl.value = '';
     issEl.value = '';
     leewayEl.value = '';
+    requireClaimsEl.value = '';
     setWarnings([]);
     setStatus('Cleared', 'ok');
     updateKeyUi();
@@ -670,6 +697,11 @@ loadSampleEl.addEventListener('click', async () => {
     audEl.value = data.aud || '';
     issEl.value = data.iss || '';
     leewayEl.value = typeof data.leeway === 'number' ? String(data.leeway) : '';
+    if (Array.isArray(data.require)) {
+      requireClaimsEl.value = data.require.join(',');
+    } else {
+      requireClaimsEl.value = '';
+    }
 
     keyEl.value = data.key_text || '';
     kidEl.value = data.kid || '';
@@ -1242,26 +1274,48 @@ button.ghost {
 
 class JWTWorkbenchHandler(BaseHTTPRequestHandler):
     server_version = "JWTWorkbench/0.1"
+    _MAX_BODY_BYTES = 256 * 1024
+
+    def _send_common_headers(self, content_type: str, content_length: int) -> None:
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(content_length))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
 
     def _send_json(self, payload: dict[str, Any], status: HTTPStatus = HTTPStatus.OK) -> None:
         data = json.dumps(payload).encode("utf-8")
         self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(data)))
+        self._send_common_headers("application/json", len(data))
         self.end_headers()
         self.wfile.write(data)
 
     def _send_text(self, text: str, content_type: str) -> None:
         data = text.encode("utf-8")
         self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(data)))
+        self._send_common_headers(content_type, len(data))
         self.end_headers()
         self.wfile.write(data)
 
     def _read_json(self) -> dict[str, Any]:
-        length = int(self.headers.get("Content-Length", "0"))
+        content_type = self.headers.get("Content-Type", "")
+        if "application/json" not in content_type:
+            raise ValueError("Content-Type must be application/json")
+        length_raw = self.headers.get("Content-Length")
+        if length_raw is None:
+            raise ValueError("Content-Length is required")
+        try:
+            length = int(length_raw)
+        except ValueError as exc:
+            raise ValueError("invalid Content-Length header") from exc
+        if length <= 0:
+            raise ValueError("request body is required")
+        if length > self._MAX_BODY_BYTES:
+            raise ValueError("request body too large")
         body = self.rfile.read(length)
+        if len(body) != length:
+            raise ValueError("incomplete request body")
         try:
             payload = json.loads(body.decode("utf-8"))
         except json.JSONDecodeError as exc:
@@ -1280,212 +1334,38 @@ class JWTWorkbenchHandler(BaseHTTPRequestHandler):
         if self.path == "/styles.css":
             self._send_text(_STYLES, "text/css; charset=utf-8")
             return
-        self.send_error(HTTPStatus.NOT_FOUND, "Not found")
+        self._send_json({"error": "not found"}, status=HTTPStatus.NOT_FOUND)
 
     def do_POST(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
         try:
             payload = self._read_json()
             if self.path == "/api/sample":
-                kind = payload.get("kind")
-                if kind not in {"hs256", "rs256-pem", "rs256-jwks", "none"}:
+                kind = str(payload.get("kind", "")).strip()
+                if kind not in SUPPORTED_SAMPLE_KINDS:
                     raise ValueError("unknown sample kind")
-
-                now = int(time.time())
-                sample_payload: dict[str, Any] = {
-                    "sub": "demo-user",
-                    "aud": "demo-aud",
-                    "iss": "demo-iss",
-                    "iat": now,
-                    "exp": now + 3600,
-                }
-
-                if kind == "none":
-                    token = sign_token(
-                        payload=sample_payload,
-                        key_path=None,
-                        key_text=None,
-                        alg="none",
-                        kid=None,
-                    )
-                    header, decoded = decode_token(token)
-                    warnings = analyze_claims(decoded, header)
-                    self._send_json(
-                        {
-                            "token": token,
-                            "header": header,
-                            "payload": decoded,
-                            "warnings": warnings,
-                            "alg": "none",
-                            "key_type": "secret",
-                            "key_text": "",
-                            "kid": "",
-                            "aud": "demo-aud",
-                            "iss": "demo-iss",
-                            "leeway": 30,
-                        }
-                    )
-                    return
-
-                if kind == "hs256":
-                    secret = "demo-secret-please-change"
-                    token = sign_token(
-                        payload=sample_payload,
-                        key_path=None,
-                        key_text=secret,
-                        alg="HS256",
-                        kid=None,
-                    )
-                    header, decoded = decode_token(token)
-                    warnings = analyze_claims(
-                        decoded, header, hmac_key_len=len(secret.encode("utf-8"))
-                    )
-                    self._send_json(
-                        {
-                            "token": token,
-                            "header": header,
-                            "payload": decoded,
-                            "warnings": warnings,
-                            "alg": "HS256",
-                            "key_type": "secret",
-                            "key_text": secret,
-                            "kid": "",
-                            "aud": "demo-aud",
-                            "iss": "demo-iss",
-                            "leeway": 30,
-                        }
-                    )
-                    return
-
-                private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-                private_pem = private_key.private_bytes(
-                    encoding=serialization.Encoding.PEM,
-                    format=serialization.PrivateFormat.PKCS8,
-                    encryption_algorithm=serialization.NoEncryption(),
-                ).decode("utf-8")
-                public_pem = (
-                    private_key.public_key()
-                    .public_bytes(
-                        encoding=serialization.Encoding.PEM,
-                        format=serialization.PublicFormat.SubjectPublicKeyInfo,
-                    )
-                    .decode("utf-8")
-                )
-
-                token = sign_token(
-                    payload=sample_payload,
-                    key_path=None,
-                    key_text=private_pem,
-                    alg="RS256",
-                    kid="demo-k1",
-                )
-                header, decoded = decode_token(token)
-                warnings = analyze_claims(decoded, header)
-
-                if kind == "rs256-pem":
-                    self._send_json(
-                        {
-                            "token": token,
-                            "header": header,
-                            "payload": decoded,
-                            "warnings": warnings,
-                            "alg": "RS256",
-                            "key_type": "pem",
-                            "key_text": private_pem,
-                            "kid": "demo-k1",
-                            "aud": "demo-aud",
-                            "iss": "demo-iss",
-                            "leeway": 30,
-                        }
-                    )
-                    return
-
-                jwk1 = jwk_from_pem(public_pem, kid="demo-k1")
-                other_private = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-                other_public_pem = (
-                    other_private.public_key()
-                    .public_bytes(
-                        encoding=serialization.Encoding.PEM,
-                        format=serialization.PublicFormat.SubjectPublicKeyInfo,
-                    )
-                    .decode("utf-8")
-                )
-                jwk2 = jwk_from_pem(other_public_pem, kid="demo-k2")
-                jwks = {"keys": [jwk1, jwk2]}
-
+                sample = generate_sample(kind)
                 self._send_json(
                     {
-                        "token": token,
-                        "header": header,
-                        "payload": decoded,
-                        "warnings": warnings,
-                        "alg": "RS256",
-                        "key_type": "jwks",
-                        "key_text": json.dumps(jwks, indent=2, sort_keys=True),
-                        "kid": "demo-k1",
-                        "aud": "demo-aud",
-                        "iss": "demo-iss",
-                        "leeway": 30,
+                        "token": sample["token"],
+                        "header": sample["header"],
+                        "payload": sample["payload"],
+                        "warnings": sample["warnings"],
+                        "alg": sample["alg"],
+                        "key_type": sample["key_type"],
+                        "key_text": sample["key_text"],
+                        "kid": sample["kid"],
+                        "aud": sample["aud"],
+                        "iss": sample["iss"],
+                        "leeway": sample["leeway"],
+                        "require": sample["require"],
                     }
                 )
                 return
             if self.path == "/api/key-preset":
-                kind = payload.get("kind")
-                if kind not in {"pem-private", "pem-public", "jwk", "jwks"}:
+                kind = str(payload.get("kind", "")).strip()
+                if kind not in SUPPORTED_KEY_PRESET_KINDS:
                     raise ValueError("unknown key preset")
-
-                private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-                private_pem = private_key.private_bytes(
-                    encoding=serialization.Encoding.PEM,
-                    format=serialization.PrivateFormat.PKCS8,
-                    encryption_algorithm=serialization.NoEncryption(),
-                ).decode("utf-8")
-                public_pem = (
-                    private_key.public_key()
-                    .public_bytes(
-                        encoding=serialization.Encoding.PEM,
-                        format=serialization.PublicFormat.SubjectPublicKeyInfo,
-                    )
-                    .decode("utf-8")
-                )
-
-                if kind == "pem-private":
-                    self._send_json({"key_type": "pem", "key_text": private_pem, "alg": "RS256"})
-                    return
-                if kind == "pem-public":
-                    self._send_json({"key_type": "pem", "key_text": public_pem, "alg": "RS256"})
-                    return
-
-                jwk = jwk_from_pem(public_pem, kid="demo-k1")
-                if kind == "jwk":
-                    self._send_json(
-                        {
-                            "key_type": "jwk",
-                            "key_text": json.dumps(jwk, indent=2, sort_keys=True),
-                            "kid": "demo-k1",
-                            "alg": "RS256",
-                        }
-                    )
-                    return
-
-                other_private = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-                other_public_pem = (
-                    other_private.public_key()
-                    .public_bytes(
-                        encoding=serialization.Encoding.PEM,
-                        format=serialization.PublicFormat.SubjectPublicKeyInfo,
-                    )
-                    .decode("utf-8")
-                )
-                jwk2 = jwk_from_pem(other_public_pem, kid="demo-k2")
-                jwks = {"keys": [jwk, jwk2]}
-                self._send_json(
-                    {
-                        "key_type": "jwks",
-                        "key_text": json.dumps(jwks, indent=2, sort_keys=True),
-                        "kid": "demo-k1",
-                        "alg": "RS256",
-                    }
-                )
+                self._send_json(generate_key_preset(kind))
                 return
             if self.path == "/api/decode":
                 token = str(payload.get("token", "")).strip()
@@ -1503,9 +1383,12 @@ class JWTWorkbenchHandler(BaseHTTPRequestHandler):
                 kid = payload.get("kid")
                 aud = payload.get("aud")
                 iss = payload.get("iss")
+                required_claims = payload.get("require")
                 leeway = payload.get("leeway", 0)
                 if not token:
                     raise ValueError("token is required")
+                if key_type not in {"secret", "pem", "jwk", "jwks"}:
+                    raise ValueError("key_type must be one of: secret, pem, jwk, jwks")
                 if not key_text:
                     raise ValueError("key material is required")
                 if not alg:
@@ -1537,6 +1420,19 @@ class JWTWorkbenchHandler(BaseHTTPRequestHandler):
                             iss = None
                 if isinstance(iss, str) and not iss.strip():
                     iss = None
+                if required_claims is not None and not isinstance(required_claims, (str, list)):
+                    raise ValueError("require must be a string or list of strings")
+                if isinstance(required_claims, list):
+                    if not required_claims:
+                        required_claims = None
+                    elif not all(isinstance(item, str) for item in required_claims):
+                        raise ValueError("require must be a string or list of strings")
+                    else:
+                        required_claims = [item.strip() for item in required_claims if item.strip()]
+                        if not required_claims:
+                            required_claims = None
+                if isinstance(required_claims, str) and not required_claims.strip():
+                    required_claims = None
                 if kid is not None and not isinstance(kid, str):
                     raise ValueError("kid must be a string")
                 if isinstance(leeway, str) and leeway.strip().isdigit():
@@ -1552,6 +1448,7 @@ class JWTWorkbenchHandler(BaseHTTPRequestHandler):
                         audience=aud or None,
                         issuer=iss or None,
                         leeway=leeway,
+                        required_claims=required_claims or None,
                     )
                 except jwt_exceptions.PyJWTError as exc:
                     raise ValueError(
@@ -1617,9 +1514,13 @@ class JWTWorkbenchHandler(BaseHTTPRequestHandler):
                 )
                 self._send_json({"jwks": jwks})
                 return
-            self.send_error(HTTPStatus.NOT_FOUND, "Not found")
+            self._send_json({"error": "not found"}, status=HTTPStatus.NOT_FOUND)
         except ValueError as exc:
-            self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            message = str(exc)
+            status = HTTPStatus.BAD_REQUEST
+            if message == "request body too large":
+                status = HTTPStatus.REQUEST_ENTITY_TOO_LARGE
+            self._send_json({"error": message}, status=status)
         except jwt_exceptions.PyJWTError as exc:
             self._send_json({"error": format_jwt_error(exc)}, status=HTTPStatus.BAD_REQUEST)
         except Exception as exc:
