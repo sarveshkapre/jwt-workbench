@@ -122,3 +122,16 @@ def test_key_preset_jwks_shape(web_base_url: str) -> None:
     jwks = json.loads(payload["key_text"])
     assert isinstance(jwks.get("keys"), list)
     assert len(jwks["keys"]) == 2
+
+
+def test_export_redacts_signature(web_base_url: str) -> None:
+    sample_status, _, sample = _post_json(web_base_url, "/api/sample", {"kind": "hs256"})
+    assert sample_status == 200
+    token = sample["token"]
+
+    status, _, exported = _post_json(web_base_url, "/api/export", {"token": token})
+    assert status == 200
+    assert exported["token_redacted"].split(".")[2] == "REDACTED"
+    assert exported["header"]["alg"] == "HS256"
+    assert isinstance(exported["payload"], dict)
+    assert isinstance(exported["warnings"], list)

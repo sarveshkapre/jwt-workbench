@@ -15,6 +15,7 @@ from .core import (
     jwk_from_pem,
     jwks_from_pem,
     load_key_from_material,
+    redact_jws_signature,
     sign_token,
     verify_token_with_key,
 )
@@ -71,6 +72,7 @@ _INDEX_HTML = """
           <button id="sign" type="button">Sign</button>
           <button id="copyToken" class="ghost" type="button" aria-label="Copy JWT">Copy</button>
           <button id="clearAll" class="ghost" type="button" aria-label="Clear all fields">Clear</button>
+          <button id="safeExport" class="ghost" type="button" aria-label="Safe export JSON bundle">Safe export</button>
           <select id="sampleKind" aria-label="Sample preset">
             <option value="hs256">Sample HS256</option>
             <option value="rs256-pem">Sample RS256 (PEM)</option>
@@ -168,6 +170,35 @@ _INDEX_HTML = """
         <div class="row">
           <label>Warnings</label>
           <ul id="warnings"></ul>
+        </div>
+        <div class="export">
+          <div class="output-header">
+            <label for="exportOut">Safe export</label>
+            <button id="copyExport" class="ghost" type="button" aria-label="Copy safe export JSON">
+              Copy
+            </button>
+          </div>
+          <div class="row">
+            <label for="maskClaims">Mask claims</label>
+            <input
+              id="maskClaims"
+              placeholder="Comma-separated (sub,email,name)"
+              spellcheck="false"
+              autocapitalize="off"
+            />
+          </div>
+          <div class="toolbar secondary">
+            <button id="makeExport" class="ghost" type="button">Generate safe export</button>
+          </div>
+          <textarea
+            id="exportOut"
+            readonly
+            aria-label="Safe export JSON output"
+            spellcheck="false"
+          ></textarea>
+          <p class="meta">
+            Redacts JWT signatures and can mask selected payload claims. Never includes key material.
+          </p>
         </div>
       </section>
 
@@ -269,6 +300,7 @@ const policyProfileEl = document.getElementById('policyProfile');
 const leewayEl = document.getElementById('leeway');
 const requireClaimsEl = document.getElementById('requireClaims');
 const copyTokenEl = document.getElementById('copyToken');
+const safeExportEl = document.getElementById('safeExport');
 const copyJwkOutputEl = document.getElementById('copyJwkOutput');
 const formatHeaderEl = document.getElementById('formatHeader');
 const formatPayloadEl = document.getElementById('formatPayload');
@@ -281,6 +313,10 @@ const jwksViewerEl = document.getElementById('jwksViewer');
 const jwksListEl = document.getElementById('jwksList');
 const jwksSummaryEl = document.getElementById('jwksSummary');
 const clearAllEl = document.getElementById('clearAll');
+const maskClaimsEl = document.getElementById('maskClaims');
+const exportOutEl = document.getElementById('exportOut');
+const makeExportEl = document.getElementById('makeExport');
+const copyExportEl = document.getElementById('copyExport');
 const sampleKindEl = document.getElementById('sampleKind');
 const loadSampleEl = document.getElementById('loadSample');
 const keyPresetEl = document.getElementById('keyPreset');
@@ -671,6 +707,53 @@ const sign = async () => {
   setStatus('Signed', 'ok');
 };
 
+const maskClaims = (payload, claims) => {
+  const cleaned = Array.isArray(claims)
+    ? claims.map((item) => String(item).trim()).filter(Boolean)
+    : [];
+  if (cleaned.length === 0) {
+    return { payload, masked: [] };
+  }
+
+  // Payload is JSON-compatible; deep clone to avoid mutating UI state.
+  const cloned = JSON.parse(JSON.stringify(payload || {}));
+  const masked = [];
+  cleaned.forEach((claim) => {
+    if (Object.prototype.hasOwnProperty.call(cloned, claim)) {
+      cloned[claim] = '<masked>';
+      masked.push(claim);
+    }
+  });
+  return { payload: cloned, masked };
+};
+
+const generateSafeExport = async ({ copy } = { copy: false }) => {
+  const token = tokenEl.value.trim();
+  if (!token) {
+    throw new Error('JWT is required');
+  }
+  setStatus('', '');
+
+  const exportData = await request('/api/export', { token });
+  const claims = parseListInput(maskClaimsEl.value) || null;
+  const claimList = claims === null ? [] : typeof claims === 'string' ? [claims] : claims;
+  const masked = maskClaims(exportData.payload, claimList);
+
+  const bundle = {
+    token_redacted: exportData.token_redacted,
+    header: exportData.header,
+    payload: masked.payload,
+    warnings: exportData.warnings || [],
+    masked_claims: masked.masked,
+    notes: exportData.notes || 'JWT signature redacted for safe sharing',
+  };
+
+  exportOutEl.value = JSON.stringify(bundle, null, 2);
+  if (copy) {
+    await copyText(exportOutEl.value);
+  }
+};
+
 const convertJwk = async () => {
   setStatus('', '');
   const data = await request('/api/jwk', {
@@ -789,6 +872,13 @@ copyTokenEl.addEventListener('click', async () => {
   });
 });
 
+safeExportEl.addEventListener('click', async () => {
+  await runAction(async () => {
+    await generateSafeExport({ copy: true });
+    setStatus('Copied safe export', 'ok');
+  });
+});
+
 clearAllEl.addEventListener('click', async () => {
   await runAction(async () => {
     tokenEl.value = '';
@@ -802,6 +892,8 @@ clearAllEl.addEventListener('click', async () => {
     policyProfileEl.value = 'legacy';
     leewayEl.value = '';
     requireClaimsEl.value = '';
+    maskClaimsEl.value = '';
+    exportOutEl.value = '';
     setWarnings([]);
     setStatus('Cleared', 'ok');
     updateKeyUi();
@@ -862,6 +954,20 @@ copyJwkOutputEl.addEventListener('click', async () => {
   await runAction(async () => {
     await copyText(jwkOutputEl.value);
     setStatus('Copied output', 'ok');
+  });
+});
+
+makeExportEl.addEventListener('click', async () => {
+  await runAction(async () => {
+    await generateSafeExport({ copy: false });
+    setStatus('Generated safe export', 'ok');
+  });
+});
+
+copyExportEl.addEventListener('click', async () => {
+  await runAction(async () => {
+    await copyText(exportOutEl.value);
+    setStatus('Copied safe export', 'ok');
   });
 });
 
@@ -1375,6 +1481,19 @@ button.ghost {
   font-size: 0.8rem;
 }
 
+.export {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--panel-border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.export textarea {
+  min-height: 180px;
+}
+
 #warnings {
   margin: 0;
   padding-left: 18px;
@@ -1531,6 +1650,22 @@ class JWTWorkbenchHandler(BaseHTTPRequestHandler):
                 header, data = decode_token(token)
                 warnings = analyze_claims(data, header)
                 self._send_json({"header": header, "payload": data, "warnings": warnings})
+                return
+            if self.path == "/api/export":
+                token = str(payload.get("token", "")).strip()
+                if not token:
+                    raise ValueError("token is required")
+                header, data = decode_token(token)
+                warnings = analyze_claims(data, header)
+                self._send_json(
+                    {
+                        "token_redacted": redact_jws_signature(token),
+                        "header": header,
+                        "payload": data,
+                        "warnings": warnings,
+                        "notes": "JWT signature replaced with REDACTED for safe sharing",
+                    }
+                )
                 return
             if self.path == "/api/verify":
                 token = str(payload.get("token", "")).strip()
