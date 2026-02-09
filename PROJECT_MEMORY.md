@@ -64,9 +64,13 @@ This file captures evolving, structured decisions and evidence for `jwt-workbenc
 - 2026-02-09 | `make check` | pass
 - 2026-02-09 | `gh run view 21842262004` | pass (CI for `232b90e`)
 - 2026-02-09 | `gh run watch 21842394858 --exit-status` | pass (CI for `b3733f6`)
+- 2026-02-09 | `gh run watch 21842444031 --exit-status` | pass (CI for `913212b`)
 - 2026-02-09 | `gh run list --branch main --limit 5` | observed transient GitHub push CI cancellations; manual `workflow_dispatch` now available
 - 2026-02-09 | `./.venv/bin/python -m jwt_workbench sample --kind hs256 --output text` | pass (prints token)
 - 2026-02-09 | `./.venv/bin/python -m jwt_workbench decode --token <token> --output text` | pass (prints compact payload)
+- 2026-02-09 | `./.venv/bin/python -m jwt_workbench inspect --token <hs256-sample-token> --output text --quiet` | pass (payload-only)
+- 2026-02-09 | `./.venv/bin/python -m jwt_workbench verify --token <hs256-sample-token> --alg HS256 --key-text <secret> --output text --quiet` | pass (payload-only)
+- 2026-02-09 | `./.venv/bin/python -m jwt_workbench serve --port <free-port>` + GET `/` | pass (`<title>JWT Workbench</title>`)
 - 2026-02-09 | `./.venv/bin/python -m jwt_workbench sign --alg none --payload '{"sub":"x","exp":2000000000}' --output json` | pass (prints JSON bundle)
 - 2026-02-09 | `./.venv/bin/python -m jwt_workbench serve --port <free-port>` + `curl http://127.0.0.1:<free-port>/` + `curl -X POST /api/sample` | pass
 - 2026-02-09 | `./.venv/bin/jwt-workbench validate --token <hs256-sample-token>` | pass (exit 0; `ok=true`)
