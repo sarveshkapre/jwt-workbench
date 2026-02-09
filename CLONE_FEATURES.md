@@ -7,11 +7,13 @@
 - Gaps found during codebase exploration
 
 ## Candidate Features To Do
-- [ ] P1: Add ES256 and EdDSA support for sign/verify with safe key handling and compatibility tests.
-- [ ] P1: Add copy-safe JWT redaction/export helpers (mask signatures/secrets by default for sharing/debugging).
-- [ ] P2: Add verification policy profiles (`strict`, `default`, `legacy`) for faster secure onboarding.
-- [ ] P2: Add release automation checks for pinned dependency drift and changelog/version sync.
-- [ ] P3: Add import/export support for saved offline workbench sessions (without persisting private keys by default).
+- [ ] P1 (Selected): Add ES256 + EdDSA support for sign/verify (CLI + web) with safe key parsing for PEM/JWK/JWKS and compatibility tests.
+- [ ] P1 (Selected): Add copy-safe bug-report export helpers (CLI) that redact JWT signatures by default and emit a shareable JSON bundle (header/payload/warnings).
+- [ ] P2 (Selected): Add verification policy profiles (`legacy`, `default`, `strict`) as fast presets (CLI flag + web UI picker) without changing the default behavior.
+- [ ] P2: Expand algorithm surface area beyond the UI defaults (HS384/HS512, RS384/RS512, ES384/ES512) with tests to prevent key-type confusion.
+- [ ] P2: Add EC/OKP JWK/JWKS templates + presets in the web UI to reduce key-format friction for ES256/EdDSA.
+- [ ] P2: Add release automation checks for changelog/version sync and dependency pin drift.
+- [ ] P3: Add import/export support for saved offline workbench sessions (never persist private keys by default; explicit opt-in only).
 
 ## Implemented
 - [x] 2026-02-08: Required-claims verification policy across core, CLI (`--require`), and web API/UI.
