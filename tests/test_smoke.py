@@ -4,8 +4,13 @@ import json
 import socket
 import subprocess
 import sys
+import tempfile
+import threading
 import time
 import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import cast
 
 
 def _find_free_port() -> int:
@@ -179,6 +184,110 @@ def test_verify_reads_key_from_stdin() -> None:
     verified = json.loads(proc.stdout)
     assert verified["valid"] is True
     assert isinstance(verified.get("key_thumbprint_sha256"), str)
+
+
+def test_verify_oidc_issuer_fetch_and_offline_cache_fallback() -> None:
+    sample = subprocess.run(
+        [sys.executable, "-m", "jwt_workbench", "sample", "--kind", "rs256-jwks"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert sample.returncode == 0
+    data = json.loads(sample.stdout)
+    token = data["token"]
+    jwks = data["jwks"]
+    kid = data["kid"]
+
+    class OIDCHandler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802 - http handler API
+            host, port = cast(tuple[str | bytes, int], self.server.server_address)
+            host_text = host.decode("ascii") if isinstance(host, bytes) else host
+            if self.path == "/issuer/.well-known/openid-configuration":
+                body = json.dumps({"jwks_uri": f"http://{host_text}:{port}/jwks"}).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            if self.path == "/jwks":
+                body = json.dumps(jwks).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            self.send_response(404)
+            self.end_headers()
+
+        def log_message(self, _fmt: str, *_args: object) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), OIDCHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = cast(tuple[str | bytes, int], server.server_address)
+    host_text = host.decode("ascii") if isinstance(host, bytes) else host
+    issuer_url = f"http://{host_text}:{port}/issuer"
+
+    with tempfile.TemporaryDirectory() as td:
+        cache_path = str(Path(td) / "jwks-cache.json")
+        try:
+            online = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "jwt_workbench",
+                    "verify",
+                    "--token",
+                    token,
+                    "--alg",
+                    "RS256",
+                    "--oidc-issuer",
+                    issuer_url,
+                    "--jwks-cache",
+                    cache_path,
+                    "--kid",
+                    kid,
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            assert online.returncode == 0
+            assert json.loads(online.stdout)["valid"] is True
+            assert Path(cache_path).exists()
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+        # Offline: discovery fetch will fail, but cached JWKS should still allow verification.
+        offline = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "jwt_workbench",
+                "verify",
+                "--token",
+                token,
+                "--alg",
+                "RS256",
+                "--oidc-issuer",
+                issuer_url,
+                "--jwks-cache",
+                cache_path,
+                "--kid",
+                kid,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert offline.returncode == 0
+        assert json.loads(offline.stdout)["valid"] is True
 
 
 def test_sign_accepts_headers() -> None:

@@ -8,6 +8,7 @@
 - CLI: add `validate` to run decode + claim hygiene checks and exit non-zero on issues (CI-friendly; no signature verification).
 - Verify: include an optional `key_thumbprint_sha256` (RFC 7638 JWK thumbprint) for non-HS key inputs to help confirm key selection.
 - Verify: add `--at` time override (CLI + web) to evaluate exp/nbf/iat as-of a provided unix timestamp (debugging).
+- Verify: add `--oidc-issuer` to resolve `jwks_uri` via OIDC discovery (explicit opt-in network; offline fallback via `--jwks-cache`).
 - JWKS: add optional `--jwks-url` fetch + cache fallback for common OIDC workflows (explicit opt-in; still works offline via cache).
 - Web UI: add claims table view with human-time rendering for `exp`/`nbf`/`iat` (jwt.io parity).
 - Decode: do not validate exp/nbf/iat/aud/iss when decoding without verification (show warnings instead).

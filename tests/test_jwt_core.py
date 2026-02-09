@@ -5,6 +5,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import cast
 
 import pytest
 from jwt import exceptions as jwt_exceptions
@@ -14,6 +15,7 @@ from cryptography.hazmat.primitives.asymmetric import ec, ed25519, rsa
 from jwt_workbench.core import (
     analyze_claims,
     decode_token,
+    discover_jwks_uri_from_oidc_issuer,
     format_jwt_error,
     jwk_from_pem,
     jwk_thumbprint_sha256,
@@ -880,6 +882,76 @@ def test_jwks_url_fetch_and_cache_fallback(tmp_path: Path) -> None:
     )
     assert header["alg"] == "RS256"
     assert verified["sub"] == "url-user"
+
+
+def test_oidc_discovery_resolves_jwks_uri(tmp_path: Path) -> None:
+    private_pem, public_pem = _rsa_keypair()
+    token = sign_token(
+        {"sub": "oidc-user", "exp": int(time.time()) + 60},
+        key_path=None,
+        key_text=private_pem,
+        alg="RS256",
+        kid="oidc-k1",
+    )
+    jwks = {"keys": [jwk_from_pem(public_pem, kid="oidc-k1")]}
+    cache_path = tmp_path / "jwks-cache.json"
+
+    class OIDCHandler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802 - http handler API
+            host, port = cast(tuple[str | bytes, int], self.server.server_address)
+            host_text = host.decode("ascii") if isinstance(host, bytes) else host
+            if self.path == "/issuer/.well-known/openid-configuration":
+                body = json.dumps({"jwks_uri": f"http://{host_text}:{port}/jwks"}).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            if self.path == "/jwks":
+                body = json.dumps(jwks).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            self.send_response(404)
+            self.end_headers()
+
+        def log_message(self, _fmt: str, *_args: object) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), OIDCHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = cast(tuple[str | bytes, int], server.server_address)
+    host_text = host.decode("ascii") if isinstance(host, bytes) else host
+    issuer_url = f"http://{host_text}:{port}/issuer/"
+    try:
+        jwks_uri = discover_jwks_uri_from_oidc_issuer(issuer_url)
+        assert jwks_uri.endswith("/jwks")
+        header, verified = verify_token(
+            token=token,
+            key_path=None,
+            key_text=None,
+            jwk_path=None,
+            jwks_path=None,
+            jwks_url=jwks_uri,
+            jwks_cache_path=str(cache_path),
+            kid="oidc-k1",
+            alg="RS256",
+            audience=None,
+            issuer=None,
+            leeway=0,
+        )
+        assert header["alg"] == "RS256"
+        assert verified["sub"] == "oidc-user"
+        assert cache_path.exists()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
 
 
 def test_none_sign_decode() -> None:

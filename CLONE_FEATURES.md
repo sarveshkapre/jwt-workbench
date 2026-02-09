@@ -7,9 +7,10 @@
 - Gaps found during codebase exploration
 
 ## Candidate Features To Do
+- [ ] P1: CLI `verify --oidc-issuer <issuer>` to auto-discover `jwks_uri` via OIDC discovery (explicit opt-in network; allow offline fallback via `--jwks-cache`). [impact=4 effort=3 fit=4 diff=2 risk=3 conf=3]
+- [ ] P1: CLI `--quiet` for scripting to suppress warning lines and extra text output (where applicable) without changing JSON payload shapes. [impact=3 effort=2 fit=4 diff=1 risk=2 conf=3]
+- [ ] P2: DX: add `make fmt` to apply Ruff formatting locally (reduce CI-only format drift). [impact=2 effort=1 fit=4 diff=1 risk=1 conf=4]
 - [ ] P3: Add import/export support for saved offline workbench sessions (never persist private keys by default; explicit opt-in only). [impact=4 effort=4 fit=4 diff=3 risk=3 conf=3]
-- [ ] P3: Add an opt-in OIDC discovery helper to resolve `jwks_uri` from an issuer (`/.well-known/openid-configuration`) for faster verify setup. [impact=3 effort=3 fit=4 diff=2 risk=3 conf=3]
-- [ ] P3: Add a one-line `--quiet` option for scripting (suppress warnings + extra text output where applicable). [impact=2 effort=2 fit=3 diff=1 risk=1 conf=3]
 - [ ] P3: Add import/export for web UI sessions (token + decoded header/payload + policy controls), with explicit redaction of private key material. [impact=3 effort=4 fit=4 diff=2 risk=3 conf=2]
 - [ ] P3: Add an explicit "no-network" mode toggle in web UI that disables any future network-required helpers (defense-in-depth UX). [impact=2 effort=2 fit=3 diff=1 risk=1 conf=3]
 

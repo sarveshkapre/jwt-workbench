@@ -736,7 +736,7 @@ def _fetch_jwks(url: str, *, timeout: float = 3.0, max_bytes: int = 512 * 1024) 
         raise ValueError("JWKS url must be http(s)")
 
     req = urllib.request.Request(url, headers={"Accept": "application/json"})
-    with urllib.request.urlopen(req, timeout=timeout) as response:
+    with _urlopen_http(req, timeout=timeout) as response:
         body = response.read(max_bytes + 1)
     if len(body) > max_bytes:
         raise ValueError("JWKS response too large")
@@ -751,6 +751,57 @@ def _fetch_jwks(url: str, *, timeout: float = 3.0, max_bytes: int = 512 * 1024) 
     if not isinstance(keys, list):
         raise ValueError("JWKS keys must be a list")
     return cast(dict[str, Any], parsed_json)
+
+
+class _SafeHTTPRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(
+        self, req: Any, fp: Any, code: int, msg: str, headers: Any, newurl: str
+    ) -> Any:  # noqa: ANN401
+        parsed = urllib.parse.urlparse(str(newurl))
+        # Allow relative redirects (no scheme) but prevent file:/etc from being followed.
+        if parsed.scheme and parsed.scheme not in {"http", "https"}:
+            raise ValueError("redirected to non-http(s) url")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _urlopen_http(req: urllib.request.Request, *, timeout: float) -> Any:
+    opener = urllib.request.build_opener(_SafeHTTPRedirectHandler())
+    return opener.open(req, timeout=timeout)
+
+
+def discover_jwks_uri_from_oidc_issuer(
+    issuer_or_config_url: str, *, timeout: float = 3.0, max_bytes: int = 512 * 1024
+) -> str:
+    parsed = urllib.parse.urlparse(issuer_or_config_url)
+    if parsed.scheme not in {"http", "https"}:
+        raise ValueError("OIDC issuer url must be http(s)")
+
+    config_url = issuer_or_config_url.rstrip("/")
+    if not config_url.endswith("/.well-known/openid-configuration") and not config_url.endswith(
+        ".well-known/openid-configuration"
+    ):
+        config_url = f"{config_url}/.well-known/openid-configuration"
+
+    req = urllib.request.Request(config_url, headers={"Accept": "application/json"})
+    with _urlopen_http(req, timeout=timeout) as response:
+        body = response.read(max_bytes + 1)
+    if len(body) > max_bytes:
+        raise ValueError("OIDC discovery response too large")
+
+    try:
+        parsed_json = json.loads(body.decode("utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError("OIDC discovery url did not return valid JSON") from exc
+    if not isinstance(parsed_json, dict):
+        raise ValueError("OIDC discovery response must be an object")
+
+    jwks_uri = parsed_json.get("jwks_uri")
+    if not isinstance(jwks_uri, str) or not jwks_uri.strip():
+        raise ValueError("OIDC discovery response missing jwks_uri")
+    jwks_parsed = urllib.parse.urlparse(jwks_uri)
+    if jwks_parsed.scheme not in {"http", "https"}:
+        raise ValueError("jwks_uri must be http(s)")
+    return jwks_uri
 
 
 def infer_hmac_key_len(key_path: str | None, key_text: str | None) -> int | None:

@@ -12,6 +12,7 @@ from jwt import exceptions as jwt_exceptions
 from .core import (
     analyze_claims,
     decode_token,
+    discover_jwks_uri_from_oidc_issuer,
     format_jwt_error,
     infer_hmac_key_len,
     jwk_from_pem,
@@ -136,7 +137,12 @@ def _validate_verify_args(args: argparse.Namespace) -> None:
 
     use_local_key = bool(args.key or args.key_text is not None)
     use_jwk = bool(args.jwk)
-    use_jwks = bool(args.jwks or args.jwks_cache or getattr(args, "jwks_url", None))
+    use_jwks = bool(
+        args.jwks
+        or args.jwks_cache
+        or getattr(args, "jwks_url", None)
+        or getattr(args, "oidc_issuer", None)
+    )
     selected = int(use_local_key) + int(use_jwk) + int(use_jwks)
     if selected > 1:
         raise ValueError(
@@ -148,6 +154,10 @@ def _validate_verify_args(args: argparse.Namespace) -> None:
         )
     if getattr(args, "jwks_url", None) and args.jwks:
         raise ValueError("use only one of --jwks or --jwks-url")
+    if getattr(args, "oidc_issuer", None) and (
+        args.jwks or getattr(args, "jwks_url", None) or getattr(args, "jwk", None)
+    ):
+        raise ValueError("use only one of --oidc-issuer, --jwks, or --jwks-url")
 
 
 def _validate_sign_args(args: argparse.Namespace) -> None:
@@ -391,12 +401,25 @@ def _cmd_verify(args: argparse.Namespace) -> int:
             raise ValueError("unknown policy profile")
         required_claims = _VERIFY_POLICY_REQUIRED_CLAIMS[policy]
 
+    discovered_jwks_url: str | None = None
+    jwks_url = args.jwks_url
+    if getattr(args, "oidc_issuer", None):
+        try:
+            discovered_jwks_url = discover_jwks_uri_from_oidc_issuer(str(args.oidc_issuer))
+            jwks_url = discovered_jwks_url
+        except Exception as exc:  # noqa: BLE001 - caller-facing error path
+            # Offline fallback: if cache exists, proceed without a URL.
+            if args.jwks_cache and Path(args.jwks_cache).exists():
+                jwks_url = None
+            else:
+                raise ValueError(f"failed to discover jwks_uri from OIDC issuer: {exc}") from exc
+
     key, public_jwk = load_verification_key_and_public_jwk(
         key_path=args.key,
         key_text=key_text,
         jwk_path=args.jwk,
         jwks_path=args.jwks,
-        jwks_url=args.jwks_url,
+        jwks_url=jwks_url,
         jwks_cache_path=args.jwks_cache,
         kid=args.kid,
         alg=str(alg),
@@ -426,6 +449,8 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     output: dict[str, Any] = {"valid": True, "header": header, "payload": payload}
     if thumbprint:
         output["key_thumbprint_sha256"] = thumbprint
+    if discovered_jwks_url:
+        output["discovered_jwks_url"] = discovered_jwks_url
     if args.output == "text":
         print("valid")
         if thumbprint:
@@ -631,6 +656,13 @@ def main(argv: list[str] | None = None) -> int:
     p_verify.add_argument("--jwk", help="Path to JWK JSON file")
     p_verify.add_argument("--jwks", help="Path to JWKS JSON file")
     p_verify.add_argument("--jwks-url", help="JWKS URL (http(s); optional cache via --jwks-cache)")
+    p_verify.add_argument(
+        "--oidc-issuer",
+        help=(
+            "OIDC issuer URL (network; resolves jwks_uri via "
+            "/.well-known/openid-configuration; optional offline fallback via --jwks-cache)"
+        ),
+    )
     p_verify.add_argument(
         "--jwks-cache",
         help="Path to JWKS cache file (read from cache if jwks not provided; writes on verify)",

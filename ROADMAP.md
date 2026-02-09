@@ -11,4 +11,4 @@
 - Add import/export support for saved offline workbench sessions (safe defaults: never persist private keys).
 - Publish a minimal JSON schema for web API responses and lock it in tests to prevent accidental breaking changes.
 - Add `--output text|json` for quicker terminal use.
-- Add an opt-in OIDC discovery helper to resolve `jwks_uri` from issuer metadata (network-required; explicit opt-in).
+- Add import/export for web UI sessions (safe defaults: never persist private keys).

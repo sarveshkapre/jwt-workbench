@@ -115,6 +115,12 @@ Verify with a JWKS URL (explicit opt-in) and keep an offline cache:
 jwt-workbench verify --token "$JWT" --jwks-url "https://issuer.example/.well-known/jwks.json" --jwks-cache ~/.cache/jwt-workbench/jwks.json --kid my-kid
 ```
 
+Verify with OIDC discovery (explicit opt-in network) to resolve `jwks_uri` from issuer metadata:
+
+```bash
+jwt-workbench verify --token "$JWT" --oidc-issuer "https://issuer.example" --jwks-cache ~/.cache/jwt-workbench/jwks.json --kid my-kid
+```
+
 Export a copy-safe bundle (signature redacted):
 
 ```bash
