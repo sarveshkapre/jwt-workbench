@@ -17,11 +17,11 @@ make check
 ## Run
 
 ```bash
-python -m jwt_workbench --help
+jwt-workbench --help
 ```
 
 ## Example
 
 ```bash
-python -m jwt_workbench sign --payload '{"sub":"user","exp":1735689600}' --key-text "secret123"
+jwt-workbench sign --payload '{"sub":"user","exp":1735689600}' --key-text "secret123"
 ```
