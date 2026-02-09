@@ -75,6 +75,8 @@ _INDEX_HTML = """
             <option value="hs256">Sample HS256</option>
             <option value="rs256-pem">Sample RS256 (PEM)</option>
             <option value="rs256-jwks">Sample RS256 (JWKS)</option>
+            <option value="es256-pem">Sample ES256 (PEM)</option>
+            <option value="eddsa-pem">Sample EdDSA (PEM)</option>
             <option value="none">Sample none</option>
           </select>
           <button id="loadSample" class="ghost" type="button">Load</button>
@@ -84,6 +86,8 @@ _INDEX_HTML = """
           <select id="alg">
             <option value="HS256">HS256</option>
             <option value="RS256">RS256</option>
+            <option value="ES256">ES256</option>
+            <option value="EdDSA">EdDSA</option>
             <option value="none">none (unsigned)</option>
           </select>
         </div>
@@ -306,6 +310,34 @@ const KEY_PRESETS = {
       apiKind: 'pem-public',
       alg: 'RS256',
     },
+    {
+      id: 'pem-ec-private',
+      label: 'Sample EC P-256 private key',
+      kind: 'api',
+      apiKind: 'pem-ec-private',
+      alg: 'ES256',
+    },
+    {
+      id: 'pem-ec-public',
+      label: 'Sample EC P-256 public key',
+      kind: 'api',
+      apiKind: 'pem-ec-public',
+      alg: 'ES256',
+    },
+    {
+      id: 'pem-ed25519-private',
+      label: 'Sample Ed25519 private key',
+      kind: 'api',
+      apiKind: 'pem-ed25519-private',
+      alg: 'EdDSA',
+    },
+    {
+      id: 'pem-ed25519-public',
+      label: 'Sample Ed25519 public key',
+      kind: 'api',
+      apiKind: 'pem-ed25519-public',
+      alg: 'EdDSA',
+    },
   ],
   jwk: [
     {
@@ -316,11 +348,41 @@ const KEY_PRESETS = {
       alg: 'RS256',
     },
     {
+      id: 'jwk-ec-sample',
+      label: 'Sample EC P-256 JWK',
+      kind: 'api',
+      apiKind: 'jwk-ec',
+      alg: 'ES256',
+    },
+    {
+      id: 'jwk-okp-sample',
+      label: 'Sample Ed25519 OKP JWK',
+      kind: 'api',
+      apiKind: 'jwk-okp',
+      alg: 'EdDSA',
+    },
+    {
       id: 'jwk-template',
       label: 'Template JWK',
       kind: 'static',
       value: '{\n  "kty": "RSA",\n  "kid": "demo-k1",\n  "use": "sig",\n  "alg": "RS256",\n  "n": "<modulus>",\n  "e": "AQAB"\n}',
       alg: 'RS256',
+    },
+    {
+      id: 'jwk-ec-template',
+      label: 'Template EC JWK',
+      kind: 'static',
+      value:
+        '{\n  "kty": "EC",\n  "kid": "demo-ec1",\n  "use": "sig",\n  "alg": "ES256",\n  "crv": "P-256",\n  "x": "<x>",\n  "y": "<y>"\n}',
+      alg: 'ES256',
+    },
+    {
+      id: 'jwk-okp-template',
+      label: 'Template OKP JWK',
+      kind: 'static',
+      value:
+        '{\n  "kty": "OKP",\n  "kid": "demo-ed1",\n  "use": "sig",\n  "alg": "EdDSA",\n  "crv": "Ed25519",\n  "x": "<x>"\n}',
+      alg: 'EdDSA',
     },
   ],
   jwks: [
@@ -332,11 +394,41 @@ const KEY_PRESETS = {
       alg: 'RS256',
     },
     {
+      id: 'jwks-ec-sample',
+      label: 'Sample EC JWKS (2 keys)',
+      kind: 'api',
+      apiKind: 'jwks-ec',
+      alg: 'ES256',
+    },
+    {
+      id: 'jwks-okp-sample',
+      label: 'Sample OKP JWKS (2 keys)',
+      kind: 'api',
+      apiKind: 'jwks-okp',
+      alg: 'EdDSA',
+    },
+    {
       id: 'jwks-template',
       label: 'Template JWKS',
       kind: 'static',
       value: '{\n  "keys": [\n    {\n      "kty": "RSA",\n      "kid": "demo-k1",\n      "use": "sig",\n      "alg": "RS256",\n      "n": "<modulus>",\n      "e": "AQAB"\n    }\n  ]\n}',
       alg: 'RS256',
+    },
+    {
+      id: 'jwks-ec-template',
+      label: 'Template EC JWKS',
+      kind: 'static',
+      value:
+        '{\n  "keys": [\n    {\n      "kty": "EC",\n      "kid": "demo-ec1",\n      "use": "sig",\n      "alg": "ES256",\n      "crv": "P-256",\n      "x": "<x>",\n      "y": "<y>"\n    }\n  ]\n}',
+      alg: 'ES256',
+    },
+    {
+      id: 'jwks-okp-template',
+      label: 'Template OKP JWKS',
+      kind: 'static',
+      value:
+        '{\n  "keys": [\n    {\n      "kty": "OKP",\n      "kid": "demo-ed1",\n      "use": "sig",\n      "alg": "EdDSA",\n      "crv": "Ed25519",\n      "x": "<x>"\n    }\n  ]\n}',
+      alg: 'EdDSA',
     },
   ],
 };

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from jwt import exceptions as jwt_exceptions
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.asymmetric import ec, ed25519, rsa
 
 from jwt_workbench.core import (
     decode_token,
@@ -22,6 +22,42 @@ from jwt_workbench.core import (
 
 def _rsa_keypair() -> tuple[str, str]:
     private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    private_pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode("utf-8")
+    public_pem = (
+        private_key.public_key()
+        .public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        .decode("utf-8")
+    )
+    return private_pem, public_pem
+
+
+def _ec_p256_keypair() -> tuple[str, str]:
+    private_key = ec.generate_private_key(ec.SECP256R1())
+    private_pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode("utf-8")
+    public_pem = (
+        private_key.public_key()
+        .public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        .decode("utf-8")
+    )
+    return private_pem, public_pem
+
+
+def _ed25519_keypair() -> tuple[str, str]:
+    private_key = ed25519.Ed25519PrivateKey.generate()
     private_pem = private_key.private_bytes(
         encoding=serialization.Encoding.PEM,
         format=serialization.PrivateFormat.PKCS8,
@@ -83,6 +119,108 @@ def test_rs256_sign_verify_and_jwk() -> None:
     jwks = jwks_from_pem(public_pem, kid="k1")
     assert "keys" in jwks
     assert jwks["keys"][0]["kty"] == "RSA"
+
+
+def test_es256_sign_verify_and_jwk_and_jwks_autoselect(tmp_path: Path) -> None:
+    private_pem, public_pem = _ec_p256_keypair()
+    payload = {"aud": "test", "exp": int(time.time()) + 60}
+
+    token = sign_token(payload, key_path=None, key_text=private_pem, alg="ES256", kid="ec1")
+    header, verified = verify_token(
+        token=token,
+        key_path=None,
+        key_text=public_pem,
+        jwk_path=None,
+        jwks_path=None,
+        jwks_cache_path=None,
+        kid=None,
+        alg=None,
+    )
+    assert header["alg"] == "ES256"
+    assert verified["aud"] == "test"
+
+    jwk = jwk_from_pem(public_pem, kid="ec1")
+    assert jwk["kty"] == "EC"
+    assert jwk["kid"] == "ec1"
+
+    # JWKS autoselects the only key with matching kty when kid is omitted.
+    rsa_private, rsa_public = _rsa_keypair()
+    rsa_jwk = jwk_from_pem(rsa_public, kid="rsa1")
+    jwks_path = tmp_path / "jwks-mixed.json"
+    jwks_path.write_text(json.dumps({"keys": [rsa_jwk, jwk]}, indent=2, sort_keys=True), "utf-8")
+    header, verified = verify_token(
+        token=token,
+        key_path=None,
+        key_text=None,
+        jwk_path=None,
+        jwks_path=str(jwks_path),
+        jwks_cache_path=None,
+        kid=None,
+        alg=None,
+    )
+    assert header["alg"] == "ES256"
+    assert verified["aud"] == "test"
+
+    # Ensure RSA key still works for RS256 (sanity check the mixed JWKS keys are valid).
+    rsa_token = sign_token(payload, key_path=None, key_text=rsa_private, alg="RS256", kid="rsa1")
+    header, verified = verify_token(
+        token=rsa_token,
+        key_path=None,
+        key_text=rsa_public,
+        jwk_path=None,
+        jwks_path=None,
+        jwks_cache_path=None,
+        kid=None,
+        alg=None,
+    )
+    assert header["alg"] == "RS256"
+    assert verified["aud"] == "test"
+
+
+def test_eddsa_sign_verify_and_jwk() -> None:
+    private_pem, public_pem = _ed25519_keypair()
+    payload = {"aud": "test", "exp": int(time.time()) + 60}
+
+    token = sign_token(payload, key_path=None, key_text=private_pem, alg="EdDSA", kid="ed1")
+    header, verified = verify_token(
+        token=token,
+        key_path=None,
+        key_text=public_pem,
+        jwk_path=None,
+        jwks_path=None,
+        jwks_cache_path=None,
+        kid=None,
+        alg=None,
+    )
+    assert header["alg"] == "EdDSA"
+    assert verified["aud"] == "test"
+
+    jwk = jwk_from_pem(public_pem, kid="ed1")
+    assert jwk["kty"] == "OKP"
+    assert jwk["kid"] == "ed1"
+
+
+def test_refuses_algorithm_kty_mismatch_for_jwk(tmp_path: Path) -> None:
+    ec_private, ec_public = _ec_p256_keypair()
+
+    rsa_private, _ = _rsa_keypair()
+    rsa_token = sign_token(
+        {"exp": int(time.time()) + 60}, key_path=None, key_text=rsa_private, alg="RS256", kid=None
+    )
+
+    ec_jwk_path = tmp_path / "ec.jwk.json"
+    ec_jwk_path.write_text(json.dumps(jwk_from_pem(ec_public), indent=2, sort_keys=True), "utf-8")
+    with pytest.raises(ValueError, match="does not match algorithm"):
+        verify_token(
+            token=rsa_token,
+            key_path=None,
+            key_text=None,
+            jwk_path=str(ec_jwk_path),
+            jwks_path=None,
+            jwks_cache_path=None,
+            kid=None,
+            alg=None,
+        )
 
 
 def test_hs_refuses_pem_secret() -> None:

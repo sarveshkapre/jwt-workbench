@@ -165,14 +165,17 @@ def _cmd_sample(args: argparse.Namespace) -> int:
         "header": sample["header"],
         "payload": sample["payload"],
         "warnings": sample["warnings"],
+        "key_type": sample["key_type"],
+        "key_text": sample["key_text"],
+        "kid": sample["kid"],
+        "aud": sample["aud"],
+        "iss": sample["iss"],
+        "leeway": sample["leeway"],
+        "require": sample["require"],
     }
-    if sample["kind"] in {"hs256", "rs256-pem", "rs256-jwks"}:
-        output["verify_key"] = sample["verify_key"]
-    if sample["kind"] in {"rs256-pem", "rs256-jwks"}:
-        output["kid"] = sample["kid"]
-        output["sign_key"] = sample["sign_key"]
-    if sample["kind"] == "rs256-jwks":
-        output["jwks"] = sample["jwks"]
+    for optional_key in ("verify_key", "sign_key", "jwks"):
+        if optional_key in sample:
+            output[optional_key] = sample[optional_key]
     _print_json(output)
     return 0
 
@@ -270,7 +273,7 @@ def main(argv: list[str] | None = None) -> int:
     p_sample = sub.add_parser("sample", help="Generate offline demo tokens/keys (no network)")
     p_sample.add_argument(
         "--kind",
-        choices=["hs256", "rs256-pem", "rs256-jwks", "none"],
+        choices=["hs256", "rs256-pem", "rs256-jwks", "es256-pem", "eddsa-pem", "none"],
         default="hs256",
         help="Sample kind (default: hs256)",
     )
@@ -284,7 +287,7 @@ def main(argv: list[str] | None = None) -> int:
 
     p_verify = sub.add_parser("verify", help="Verify a JWT signature and claims")
     p_verify.add_argument("--token", required=True, help="JWT string (use '-' to read from stdin)")
-    p_verify.add_argument("--alg", help="Override algorithm (e.g. HS256, RS256)")
+    p_verify.add_argument("--alg", help="Override algorithm (e.g. HS256, RS256, ES256, EdDSA)")
     p_verify.add_argument("--key", help="Path to secret or PEM key")
     p_verify.add_argument(
         "--key-text",
@@ -328,7 +331,9 @@ def main(argv: list[str] | None = None) -> int:
     p_sign.add_argument("--payload-file", help="Path to JSON payload file")
     p_sign.add_argument("--headers", help="JSON header object (optional)")
     p_sign.add_argument("--headers-file", help="Path to JSON header file (optional)")
-    p_sign.add_argument("--alg", default="HS256", help="Algorithm (HS256, RS256, or none)")
+    p_sign.add_argument(
+        "--alg", default="HS256", help="Algorithm (HS256, RS256, ES256, EdDSA, or none)"
+    )
     p_sign.add_argument("--key", help="Path to secret or PEM private key (not used for alg=none)")
     p_sign.add_argument(
         "--key-text",

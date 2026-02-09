@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import jwt
-from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.asymmetric import ec, ed25519, ed448, rsa
 from cryptography.hazmat.primitives.serialization import (
     load_pem_private_key,
     load_pem_public_key,
@@ -31,11 +31,43 @@ def _looks_like_json(text: str) -> bool:
     return text.strip().startswith("{")
 
 
+def _expected_jwk_kty_for_alg(alg: str) -> str | None:
+    if alg.startswith("HS"):
+        return None
+    if alg.startswith(("RS", "PS")):
+        return "RSA"
+    if alg.startswith("ES"):
+        return "EC"
+    if alg == "EdDSA":
+        return "OKP"
+    return None
+
+
+def _jwk_to_key(jwk: dict[str, Any], *, alg: str | None) -> Any:
+    kty = jwk.get("kty")
+    if not isinstance(kty, str) or not kty.strip():
+        raise ValueError("JWK missing kty")
+    expected_kty = _expected_jwk_kty_for_alg(alg) if alg else None
+    if expected_kty and kty != expected_kty:
+        raise ValueError(f"JWK kty {kty} does not match algorithm {alg} (expected {expected_kty})")
+
+    jwk_json = json.dumps(jwk)
+    if kty == "RSA":
+        return algorithms.RSAAlgorithm.from_jwk(jwk_json)
+    if kty == "EC":
+        return algorithms.ECAlgorithm.from_jwk(jwk_json)
+    if kty == "OKP":
+        return algorithms.OKPAlgorithm.from_jwk(jwk_json)
+    raise ValueError(f"unsupported JWK kty: {kty}")
+
+
 def _load_key_from_text(text: str, alg: str) -> Any:
     if alg.startswith("HS"):
         if _looks_like_pem(text) or _looks_like_json(text):
             raise ValueError("refusing to use PEM/JWK as HMAC secret")
         return text.encode("utf-8")
+    if _looks_like_json(text):
+        raise ValueError("expected PEM text, got JSON (use JWK/JWKS inputs instead)")
     return text
 
 
@@ -45,10 +77,11 @@ def _load_key_from_file(path: Path, alg: str) -> Any:
         obj = json.loads(content)
         if "keys" in obj:
             raise ValueError("use jwks loader for JWKS files")
-        if obj.get("kty") == "RSA":
-            if alg.startswith("HS"):
-                raise ValueError("refusing to use JWK as HMAC secret")
-            return algorithms.RSAAlgorithm.from_jwk(json.dumps(obj))
+        if alg.startswith("HS"):
+            raise ValueError("refusing to use JWK as HMAC secret")
+        if not isinstance(obj, dict):
+            raise ValueError("invalid JWK file")
+        return _jwk_to_key(cast(dict[str, Any], obj), alg=alg)
     if _looks_like_pem(content):
         if alg.startswith("HS"):
             raise ValueError("refusing to use PEM as HMAC secret")
@@ -56,17 +89,33 @@ def _load_key_from_file(path: Path, alg: str) -> Any:
     return _load_key_from_text(content, alg)
 
 
-def _select_jwks_key(jwks: dict[str, Any], kid: str | None) -> Any:
+def _select_jwks_key(jwks: dict[str, Any], kid: str | None, *, alg: str | None) -> Any:
     keys = jwks.get("keys", [])
     if not keys:
         raise ValueError("JWKS has no keys")
+    if not isinstance(keys, list):
+        raise ValueError("JWKS keys must be a list")
+
+    jwk_candidates: list[dict[str, Any]] = []
+    for item in keys:
+        if isinstance(item, dict):
+            jwk_candidates.append(cast(dict[str, Any], item))
+
     if kid:
-        for key in keys:
-            if key.get("kid") == kid:
-                return algorithms.RSAAlgorithm.from_jwk(json.dumps(key))
+        for jwk in jwk_candidates:
+            if jwk.get("kid") == kid:
+                return _jwk_to_key(jwk, alg=alg)
         raise ValueError(f"kid not found in JWKS: {kid}")
-    if len(keys) == 1:
-        return algorithms.RSAAlgorithm.from_jwk(json.dumps(keys[0]))
+
+    if len(jwk_candidates) == 1:
+        return _jwk_to_key(jwk_candidates[0], alg=alg)
+
+    expected_kty = _expected_jwk_kty_for_alg(alg) if alg else None
+    if expected_kty:
+        matches = [jwk for jwk in jwk_candidates if jwk.get("kty") == expected_kty]
+        if len(matches) == 1:
+            return _jwk_to_key(matches[0], alg=alg)
+
     raise ValueError("JWKS has multiple keys; provide --kid")
 
 
@@ -158,14 +207,16 @@ def load_key_from_material(key_text: str, alg: str, kind: str, kid: str | None =
         return _load_key_from_text(key_text, alg)
     if kind == "jwk":
         obj = json.loads(key_text)
-        if obj.get("kty") != "RSA":
-            raise ValueError("only RSA JWK is supported")
+        if not isinstance(obj, dict):
+            raise ValueError("JWK must be an object")
         if "keys" in obj:
             raise ValueError("use jwks for multiple keys")
-        return algorithms.RSAAlgorithm.from_jwk(json.dumps(obj))
+        return _jwk_to_key(cast(dict[str, Any], obj), alg=alg)
     if kind == "jwks":
         obj = json.loads(key_text)
-        return _select_jwks_key(obj, kid)
+        if not isinstance(obj, dict):
+            raise ValueError("JWKS must be an object")
+        return _select_jwks_key(cast(dict[str, Any], obj), kid, alg=alg)
     raise ValueError(f"unknown key kind: {kind}")
 
 
@@ -230,10 +281,12 @@ def verify_token(
     key: Any
     if jwk_path:
         jwk = json.loads(Path(jwk_path).read_text(encoding="utf-8"))
-        key = algorithms.RSAAlgorithm.from_jwk(json.dumps(jwk))
+        if not isinstance(jwk, dict):
+            raise ValueError("JWK must be an object")
+        key = _jwk_to_key(cast(dict[str, Any], jwk), alg=alg)
     elif jwks_path or jwks_cache_path:
         jwks = _load_jwks_from_paths(jwks_path, jwks_cache_path)
-        key = _select_jwks_key(jwks, kid)
+        key = _select_jwks_key(jwks, kid, alg=alg)
     elif key_path:
         key = _load_key_from_file(Path(key_path), alg)
     elif key_text:
@@ -305,13 +358,25 @@ def sign_token(
 def jwk_from_pem(pem_text: str, kid: str | None = None) -> dict[str, Any]:
     data = pem_text.encode("utf-8")
     try:
-        key_any = load_pem_public_key(data)
+        key_any: Any = load_pem_public_key(data)
     except ValueError:
-        key_any = load_pem_private_key(data, password=None).public_key()
-    if not isinstance(key_any, rsa.RSAPublicKey):
-        raise ValueError("only RSA keys are supported for JWK conversion")
-    key = key_any
-    jwk_any = json.loads(algorithms.RSAAlgorithm.to_jwk(key))
+        key_any = load_pem_private_key(data, password=None)
+
+    key = (
+        key_any.public_key()
+        if hasattr(key_any, "public_key")
+        else key_any  # pragma: no cover - defensive
+    )
+
+    if isinstance(key, rsa.RSAPublicKey):
+        jwk_any = json.loads(algorithms.RSAAlgorithm.to_jwk(key))
+    elif isinstance(key, ec.EllipticCurvePublicKey):
+        jwk_any = json.loads(algorithms.ECAlgorithm.to_jwk(key))
+    elif isinstance(key, (ed25519.Ed25519PublicKey, ed448.Ed448PublicKey)):
+        jwk_any = json.loads(algorithms.OKPAlgorithm.to_jwk(key))
+    else:
+        raise ValueError("unsupported key type for JWK conversion")
+
     if not isinstance(jwk_any, dict):
         raise ValueError("invalid JWK output")
     jwk = cast(dict[str, Any], jwk_any)
