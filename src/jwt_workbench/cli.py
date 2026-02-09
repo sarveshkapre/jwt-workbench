@@ -129,16 +129,18 @@ def _validate_verify_args(args: argparse.Namespace) -> None:
 
     use_local_key = bool(args.key or args.key_text is not None)
     use_jwk = bool(args.jwk)
-    use_jwks = bool(args.jwks or args.jwks_cache)
+    use_jwks = bool(args.jwks or args.jwks_cache or getattr(args, "jwks_url", None))
     selected = int(use_local_key) + int(use_jwk) + int(use_jwks)
     if selected > 1:
         raise ValueError(
-            "provide one key source: (--key/--key-text) or --jwk or (--jwks/--jwks-cache)"
+            "provide one key source: (--key/--key-text) or --jwk or (--jwks/--jwks-url/--jwks-cache)"
         )
     if selected == 0:
         raise ValueError(
-            "missing key material; provide --key, --key-text, --jwk, --jwks, or --jwks-cache"
+            "missing key material; provide --key, --key-text, --jwk, --jwks, --jwks-url, or --jwks-cache"
         )
+    if getattr(args, "jwks_url", None) and args.jwks:
+        raise ValueError("use only one of --jwks or --jwks-url")
 
 
 def _validate_sign_args(args: argparse.Namespace) -> None:
@@ -236,6 +238,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
             key_text=key_text,
             jwk_path=args.jwk,
             jwks_path=args.jwks,
+            jwks_url=args.jwks_url,
             jwks_cache_path=args.jwks_cache,
             kid=args.kid,
             alg=args.alg,
@@ -351,6 +354,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_verify.add_argument("--jwk", help="Path to JWK JSON file")
     p_verify.add_argument("--jwks", help="Path to JWKS JSON file")
+    p_verify.add_argument("--jwks-url", help="JWKS URL (http(s); optional cache via --jwks-cache)")
     p_verify.add_argument(
         "--jwks-cache",
         help="Path to JWKS cache file (read from cache if jwks not provided; writes on verify)",

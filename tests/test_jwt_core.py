@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
@@ -741,6 +743,78 @@ def test_jwks_cache_file(tmp_path: Path) -> None:
     )
     assert header["alg"] == "RS256"
     assert verified["sub"] == "cache-user"
+
+
+def test_jwks_url_fetch_and_cache_fallback(tmp_path: Path) -> None:
+    private_pem, public_pem = _rsa_keypair()
+    token = sign_token(
+        {"sub": "url-user", "exp": int(time.time()) + 60},
+        key_path=None,
+        key_text=private_pem,
+        alg="RS256",
+        kid="url-k1",
+    )
+    jwks = {"keys": [jwk_from_pem(public_pem, kid="url-k1")]}
+    cache_path = tmp_path / "jwks-cache.json"
+
+    class JWKSHandler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802 - http handler API
+            body = json.dumps(jwks).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, _fmt: str, *_args: object) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), JWKSHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address
+    host_text = host.decode("ascii") if isinstance(host, bytes) else host
+    url = f"http://{host_text}:{port}/jwks"
+    try:
+        header, verified = verify_token(
+            token=token,
+            key_path=None,
+            key_text=None,
+            jwk_path=None,
+            jwks_path=None,
+            jwks_url=url,
+            jwks_cache_path=str(cache_path),
+            kid="url-k1",
+            alg="RS256",
+            audience=None,
+            issuer=None,
+            leeway=0,
+        )
+        assert header["alg"] == "RS256"
+        assert verified["sub"] == "url-user"
+        assert cache_path.exists()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    # Offline: verify using the cache if the JWKS fetch fails.
+    header, verified = verify_token(
+        token=token,
+        key_path=None,
+        key_text=None,
+        jwk_path=None,
+        jwks_path=None,
+        jwks_url=url,
+        jwks_cache_path=str(cache_path),
+        kid="url-k1",
+        alg="RS256",
+        audience=None,
+        issuer=None,
+        leeway=0,
+    )
+    assert header["alg"] == "RS256"
+    assert verified["sub"] == "url-user"
 
 
 def test_none_sign_decode() -> None:

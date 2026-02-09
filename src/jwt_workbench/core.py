@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import time
+import urllib.parse
+import urllib.request
 from pathlib import Path
 from typing import Any, cast
 
@@ -202,7 +204,25 @@ def _normalize_required_claims(
 def _load_jwks_from_paths(
     jwks_path: str | None,
     jwks_cache_path: str | None,
+    jwks_url: str | None = None,
 ) -> dict[str, Any]:
+    if jwks_url:
+        try:
+            jwks = _fetch_jwks(jwks_url)
+        except Exception as exc:  # noqa: BLE001 - caller-facing error path
+            if jwks_cache_path:
+                cache_path = Path(jwks_cache_path)
+                if cache_path.exists():
+                    return cast(dict[str, Any], json.loads(cache_path.read_text(encoding="utf-8")))
+            raise ValueError(f"failed to fetch JWKS from url: {exc}") from exc
+        if jwks_cache_path:
+            cache_path = Path(jwks_cache_path)
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text(
+                json.dumps(jwks, indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
+        return jwks
     if jwks_path:
         jwks = cast(dict[str, Any], json.loads(Path(jwks_path).read_text(encoding="utf-8")))
         if jwks_cache_path:
@@ -297,6 +317,7 @@ def verify_token(
     jwks_path: str | None,
     kid: str | None,
     alg: str | None,
+    jwks_url: str | None = None,
     audience: str | list[str] | None = None,
     issuer: str | list[str] | None = None,
     leeway: int = 0,
@@ -317,8 +338,8 @@ def verify_token(
         if not isinstance(jwk, dict):
             raise ValueError("JWK must be an object")
         key = _jwk_to_key(cast(dict[str, Any], jwk), alg=alg)
-    elif jwks_path or jwks_cache_path:
-        jwks = _load_jwks_from_paths(jwks_path, jwks_cache_path)
+    elif jwks_path or jwks_cache_path or jwks_url:
+        jwks = _load_jwks_from_paths(jwks_path, jwks_cache_path, jwks_url)
         key = _select_jwks_key(jwks, kid, alg=alg)
     elif key_path:
         key = _load_key_from_file(Path(key_path), alg)
@@ -326,7 +347,7 @@ def verify_token(
         key = _load_key_from_text(key_text, alg)
     else:
         raise ValueError(
-            "missing key material; provide --key, --key-text, --jwk, --jwks, or --jwks-cache"
+            "missing key material; provide --key, --key-text, --jwk, --jwks, --jwks-url, or --jwks-cache"
         )
 
     return verify_token_with_key(
@@ -504,6 +525,29 @@ def _validate_time_claims(payload: dict[str, Any], *, now: float, leeway: float)
             ) from None
         if iat > (now + leeway):
             raise jwt_exceptions.ImmatureSignatureError("The token is not yet valid (iat)")
+
+
+def _fetch_jwks(url: str, *, timeout: float = 3.0, max_bytes: int = 512 * 1024) -> dict[str, Any]:
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        raise ValueError("JWKS url must be http(s)")
+
+    req = urllib.request.Request(url, headers={"Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as response:
+        body = response.read(max_bytes + 1)
+    if len(body) > max_bytes:
+        raise ValueError("JWKS response too large")
+
+    try:
+        parsed_json = json.loads(body.decode("utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError("JWKS url did not return valid JSON") from exc
+    if not isinstance(parsed_json, dict):
+        raise ValueError("JWKS must be an object")
+    keys = parsed_json.get("keys")
+    if not isinstance(keys, list):
+        raise ValueError("JWKS keys must be a list")
+    return cast(dict[str, Any], parsed_json)
 
 
 def infer_hmac_key_len(key_path: str | None, key_text: str | None) -> int | None:
