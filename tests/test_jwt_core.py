@@ -12,6 +12,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec, ed25519, rsa
 
 from jwt_workbench.core import (
+    analyze_claims,
     decode_token,
     format_jwt_error,
     jwk_from_pem,
@@ -149,6 +150,21 @@ def test_decode_does_not_validate_exp() -> None:
     header, decoded = decode_token(token)
     assert header["alg"] == "HS256"
     assert decoded["sub"] == "expired-user"
+
+
+def test_analyze_claims_warns_on_risky_headers() -> None:
+    # Keep claim warnings out of the way so this test is stable.
+    payload = {"exp": 2000000100, "aud": "a", "iss": "i"}
+    header = {
+        "alg": "RS256",
+        "jku": "https://issuer.example/.well-known/jwks.json",
+        "x5u": "https://issuer.example/certs.pem",
+        "crit": ["b64"],
+    }
+    warnings = analyze_claims(payload, header, now=2000000000)
+    assert "token header contains jku (some stacks may fetch keys over the network)" in warnings
+    assert "token header contains x5u (some stacks may fetch certs over the network)" in warnings
+    assert "token header contains crit (requires special processing)" in warnings
 
 
 def test_format_jwt_error_iat_nbf_and_time_claim_integer_errors() -> None:

@@ -620,6 +620,32 @@ def analyze_claims(
     if alg and alg.startswith("HS") and hmac_key_len is not None and hmac_key_len < 32:
         warnings.append("HMAC secret is shorter than 32 bytes (weak)")
 
+    # Header footguns: some libraries support resolving keys/certs from header URLs or
+    # require special handling when "crit" is present.
+    jku = header.get("jku")
+    if isinstance(jku, str):
+        if jku.strip():
+            warnings.append("token header contains jku (some stacks may fetch keys over the network)")
+    elif jku is not None:
+        warnings.append("token header contains jku (some stacks may fetch keys over the network)")
+
+    x5u = header.get("x5u")
+    if isinstance(x5u, str):
+        if x5u.strip():
+            warnings.append("token header contains x5u (some stacks may fetch certs over the network)")
+    elif x5u is not None:
+        warnings.append("token header contains x5u (some stacks may fetch certs over the network)")
+
+    crit = header.get("crit")
+    if isinstance(crit, list):
+        if crit:
+            warnings.append("token header contains crit (requires special processing)")
+    elif isinstance(crit, str):
+        if crit.strip():
+            warnings.append("token header contains crit (requires special processing)")
+    elif crit is not None:
+        warnings.append("token header contains crit (requires special processing)")
+
     now_ts = int(time.time()) if now is None else int(now)
     exp = payload.get("exp")
     if exp is None:
