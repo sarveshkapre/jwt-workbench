@@ -501,7 +501,7 @@ def _validate_time_claims(payload: dict[str, Any], *, now: float, leeway: float)
     if "exp" in payload:
         try:
             exp = int(payload["exp"])
-        except ValueError:
+        except (TypeError, ValueError):
             raise jwt_exceptions.DecodeError(
                 "Expiration Time claim (exp) must be an integer."
             ) from None
@@ -511,7 +511,7 @@ def _validate_time_claims(payload: dict[str, Any], *, now: float, leeway: float)
     if "nbf" in payload:
         try:
             nbf = int(payload["nbf"])
-        except ValueError:
+        except (TypeError, ValueError):
             raise jwt_exceptions.DecodeError("Not Before claim (nbf) must be an integer.") from None
         if nbf > (now + leeway):
             raise jwt_exceptions.ImmatureSignatureError("The token is not yet valid (nbf)")
@@ -519,7 +519,7 @@ def _validate_time_claims(payload: dict[str, Any], *, now: float, leeway: float)
     if "iat" in payload:
         try:
             iat = int(payload["iat"])
-        except ValueError:
+        except (TypeError, ValueError):
             raise jwt_exceptions.InvalidIssuedAtError(
                 "Issued At claim (iat) must be an integer."
             ) from None
