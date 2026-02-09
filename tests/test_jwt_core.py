@@ -14,6 +14,7 @@ from jwt_workbench.core import (
     jwk_from_pem,
     jwks_from_pem,
     load_key_from_material,
+    redact_jws_signature,
     sign_token,
     verify_token_with_key,
     verify_token,
@@ -221,6 +222,27 @@ def test_refuses_algorithm_kty_mismatch_for_jwk(tmp_path: Path) -> None:
             kid=None,
             alg=None,
         )
+
+
+def test_redact_jws_signature() -> None:
+    token = sign_token(
+        {"sub": "x", "exp": int(time.time()) + 60},
+        key_path=None,
+        key_text="secret123",
+        alg="HS256",
+        kid=None,
+    )
+    redacted = redact_jws_signature(token)
+    parts = token.split(".")
+    redacted_parts = redacted.split(".")
+    assert len(parts) == 3
+    assert len(redacted_parts) == 3
+    assert redacted_parts[0] == parts[0]
+    assert redacted_parts[1] == parts[1]
+    assert redacted_parts[2] == "REDACTED"
+
+    with pytest.raises(ValueError):
+        redact_jws_signature("x.y")
 
 
 def test_hs_refuses_pem_secret() -> None:

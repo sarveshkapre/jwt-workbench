@@ -91,6 +91,29 @@ def test_decode_reads_token_from_stdin() -> None:
     assert decoded["header"]["alg"] == "none"
 
 
+def test_export_outputs_redacted_bundle() -> None:
+    sample = subprocess.run(
+        [sys.executable, "-m", "jwt_workbench", "sample", "--kind", "none"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert sample.returncode == 0
+    token = json.loads(sample.stdout)["token"]
+
+    proc = subprocess.run(
+        [sys.executable, "-m", "jwt_workbench", "export", "--token", token],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0
+    exported = json.loads(proc.stdout)
+    assert exported["token_redacted"].endswith(".REDACTED")
+    assert isinstance(exported["header"], dict)
+    assert isinstance(exported["payload"], dict)
+
+
 def test_verify_reads_key_from_stdin() -> None:
     sample = subprocess.run(
         [sys.executable, "-m", "jwt_workbench", "sample", "--kind", "rs256-pem"],

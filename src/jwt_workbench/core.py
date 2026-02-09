@@ -23,6 +23,15 @@ def decode_token(token: str) -> tuple[dict[str, Any], dict[str, Any]]:
     return header, payload
 
 
+def redact_jws_signature(token: str, replacement: str = "REDACTED") -> str:
+    parts = token.strip().split(".")
+    if len(parts) != 3:
+        raise ValueError("expected a JWS with three dot-separated parts")
+    if not replacement or "." in replacement:
+        raise ValueError("invalid replacement")
+    return f"{parts[0]}.{parts[1]}.{replacement}"
+
+
 def _looks_like_pem(text: str) -> bool:
     return "BEGIN" in text and "KEY" in text
 

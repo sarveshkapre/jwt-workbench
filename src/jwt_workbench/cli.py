@@ -15,6 +15,7 @@ from .core import (
     infer_hmac_key_len,
     jwk_from_pem,
     jwks_from_pem,
+    redact_jws_signature,
     sign_token,
     verify_token,
 )
@@ -163,6 +164,21 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_export(args: argparse.Namespace) -> int:
+    token = _load_token(args.token)
+    header, payload = decode_token(token)
+    _print_json(
+        {
+            "token_redacted": redact_jws_signature(token),
+            "header": header,
+            "payload": payload,
+            "warnings": analyze_claims(payload, header),
+            "notes": "JWT signature replaced with REDACTED for safe sharing",
+        }
+    )
+    return 0
+
+
 def _cmd_sample(args: argparse.Namespace) -> int:
     sample = generate_sample(str(args.kind), exp_seconds=int(args.exp_seconds))
     output: dict[str, Any] = {
@@ -281,6 +297,12 @@ def main(argv: list[str] | None = None) -> int:
         "--no-warnings", action="store_true", help="Do not print warnings to stderr"
     )
     p_inspect.set_defaults(func=_cmd_inspect)
+
+    p_export = sub.add_parser(
+        "export", help="Export a copy-safe JSON bundle (redacts the signature)"
+    )
+    p_export.add_argument("--token", required=True, help="JWT string (use '-' to read from stdin)")
+    p_export.set_defaults(func=_cmd_export)
 
     p_sample = sub.add_parser("sample", help="Generate offline demo tokens/keys (no network)")
     p_sample.add_argument(
