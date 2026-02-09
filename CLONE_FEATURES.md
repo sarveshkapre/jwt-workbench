@@ -7,10 +7,6 @@
 - Gaps found during codebase exploration
 
 ## Candidate Features To Do
-- [ ] P1: Fix `iat` verification error messaging (PyJWT raises `ImmatureSignatureError` for future `iat`; map to a correct, user-facing message).
-- [ ] P1: Add verify-time override for debugging (`--at` / web advanced option) without mutating system clock.
-- [ ] P2: Add optional `--jwks-url` fetch + cache for common OIDC/JWKS workflows (explicit opt-in; safe fallback to cache when offline).
-- [ ] P2: Web UI parity: add a "Claims table" view (like jwt.io) with human-time rendering for `exp`/`nbf`/`iat`.
 - [ ] P3: Publish a minimal JSON schema for web API responses and lock it in tests to prevent accidental breaking changes.
 - [ ] P3: Add import/export support for saved offline workbench sessions (never persist private keys by default; explicit opt-in only).
 - [ ] P3: Add a `validate` / `lint` command that runs decode + warnings + optional policy checks and exits non-zero on problems (CI-friendly).
@@ -18,6 +14,14 @@
 - [ ] P3: Add key fingerprints in CLI/web (public material only) to help users confirm they pasted the expected key.
 
 ## Implemented
+- [x] 2026-02-09: Fix `iat` verification error messaging (distinguish future `iat` vs `nbf` and surface integer-claim errors).
+  Evidence: `src/jwt_workbench/core.py`, `tests/test_jwt_core.py`.
+- [x] 2026-02-09: Verify-time override for debugging (`--at` in CLI + web advanced option) without mutating system clock.
+  Evidence: `src/jwt_workbench/core.py`, `src/jwt_workbench/cli.py`, `src/jwt_workbench/web.py`, `tests/test_jwt_core.py`, `tests/test_web_api.py`.
+- [x] 2026-02-09: Optional `--jwks-url` fetch + cache for common OIDC/JWKS workflows (explicit opt-in; safe fallback to cache when offline).
+  Evidence: `src/jwt_workbench/core.py`, `src/jwt_workbench/cli.py`, `tests/test_jwt_core.py`.
+- [x] 2026-02-09: Web UI "Claims table" view (jwt.io parity) with human-time rendering for `exp`/`nbf`/`iat`.
+  Evidence: `src/jwt_workbench/web.py`.
 - [x] 2026-02-09: Web UI safe export helper: signature redaction + optional payload claim masking + one-click copy (never includes key material).
   Evidence: `src/jwt_workbench/web.py`, `tests/test_web_api.py`.
 - [x] 2026-02-09: Expanded algorithm coverage in web UI (HS/RS/PS/ES variants) with curve-appropriate presets and compatibility tests.

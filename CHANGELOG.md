@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Verify: add `--at` time override (CLI + web) to evaluate exp/nbf/iat as-of a provided unix timestamp (debugging).
+- JWKS: add optional `--jwks-url` fetch + cache fallback for common OIDC workflows (explicit opt-in; still works offline via cache).
+- Web UI: add claims table view with human-time rendering for `exp`/`nbf`/`iat` (jwt.io parity).
+- Decode: do not validate exp/nbf/iat/aud/iss when decoding without verification (show warnings instead).
 - Web UI: add safe export generator (signature redaction + optional claim masking + one-click copy) for safer bug-report sharing.
 - Web API: add `/api/export` and enforce clearer key-type requirements for HS vs non-HS algorithms to prevent key confusion.
 - Algorithms: expand supported alg dropdown/presets to include HS384/HS512, RS384/RS512, PS256/PS384/PS512, ES384/ES512 (CLI/web + samples + tests).

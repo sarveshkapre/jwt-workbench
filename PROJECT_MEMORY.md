@@ -33,6 +33,11 @@ This file captures evolving, structured decisions and evidence for `jwt-workbenc
 
 ## Recent Decisions
 
+- 2026-02-09 | Fix verification error messaging for time-claim failures (`iat` vs `nbf`, and integer-claim errors) | Reduce debugging time and prevent misleading messages when PyJWT raises shared exception types | `src/jwt_workbench/core.py`, `tests/test_jwt_core.py` | `c2f1751` | High | trusted
+- 2026-02-09 | Add verify-time override (`--at`) in CLI + web verify API/UI | Enable reproducible debugging of exp/nbf/iat behavior without changing system clocks; keep default behavior unchanged when omitted | `src/jwt_workbench/core.py`, `src/jwt_workbench/cli.py`, `src/jwt_workbench/web.py`, `tests/test_jwt_core.py`, `tests/test_web_api.py` | `212a3c0` | High | trusted
+- 2026-02-09 | Make decode mode non-validating for time/aud/iss claims | "Decode" should parse JWTs even when expired/not-yet-valid so users can inspect and rely on warnings instead of hard failures | `src/jwt_workbench/core.py`, `tests/test_jwt_core.py` | `212a3c0` | High | trusted
+- 2026-02-09 | Add `--jwks-url` fetch with safe cache fallback | Support common OIDC JWKS endpoint workflows while staying offline-first via explicit caching | `src/jwt_workbench/core.py`, `src/jwt_workbench/cli.py`, `tests/test_jwt_core.py` | `7311c86` | Medium | trusted
+- 2026-02-09 | Add web UI claims table with human-time rendering | Improve jwt.io parity and reduce friction when reading time-based claims | `src/jwt_workbench/web.py` | `b9d91c9` | Medium | trusted
 - 2026-02-09 | Add CSP + anti-embed headers for the local web UI | Reduce accidental data exfil / embedding risk for a local tool with user-controlled input | `src/jwt_workbench/web.py`, `tests/test_web_api.py` | `d726dff` | High | trusted
 - 2026-02-09 | Add web UI "Safe export" with signature redaction + optional claim masking | Make it safer to share debugging bundles without leaking full tokens or PII | `src/jwt_workbench/web.py`, `tests/test_web_api.py` | `5aa9dca` | High | trusted
 - 2026-02-09 | Expand algorithm coverage (HS/RS/PS/ES variants) with curve-appropriate presets | Meet common JWT ecosystem expectations while preventing key-type confusion and adding compatibility tests | `src/jwt_workbench/web.py`, `src/jwt_workbench/samples.py`, `tests/test_jwt_core.py` | `7e8dadc` | High | trusted
@@ -46,6 +51,10 @@ This file captures evolving, structured decisions and evidence for `jwt-workbenc
 ## Verification Evidence
 
 - 2026-02-09 | `make check` | pass
+- 2026-02-09 | `./.venv/bin/jwt-workbench verify --alg HS256 --at <exp+1>` | pass (exits 2 with `error: token is expired`)
+- 2026-02-09 | `./.venv/bin/jwt-workbench verify --alg HS256 --at <exp-1>` | pass
+- 2026-02-09 | `./.venv/bin/jwt-workbench verify --alg RS256 --jwks-url http://127.0.0.1:<port>/jwks --jwks-cache <path> --kid <kid>` | pass (fetch + cache + offline fallback)
+- 2026-02-09 | `./.venv/bin/jwt-workbench serve --port 8123` + POST `/api/verify` with `at=<exp+1>` | pass (`token is expired`)
 - 2026-02-09 | `./.venv/bin/jwt-workbench serve --port 8123` + `curl http://127.0.0.1:8123/` | pass (HTML served)
 - 2026-02-09 | `curl -X POST http://127.0.0.1:8123/api/sample -H 'Content-Type: application/json' -d '{\"kind\":\"hs512\"}'` | pass (returned `HS512` token with 3 segments)
 - 2026-02-09 | `curl -X POST http://127.0.0.1:8123/api/export -H 'Content-Type: application/json' -d '{\"token\":\"x.y.z\"}'` | pass (returned JSON error `invalid token format`)

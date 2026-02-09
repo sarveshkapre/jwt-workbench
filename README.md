@@ -64,6 +64,12 @@ Verify with audience/issuer + clock skew:
 jwt-workbench verify --token "$JWT" --key-text "secret123" --aud "my-aud" --iss "my-iss" --leeway 30
 ```
 
+Verify as-of a specific time (debugging) without changing your system clock:
+
+```bash
+jwt-workbench verify --token "$JWT" --key-text "secret123" --at 1735689600
+```
+
 Require claims to be present during verification:
 
 ```bash
@@ -87,6 +93,12 @@ Verify with a JWKS cache file:
 ```bash
 jwt-workbench verify --token "$JWT" --jwks ./jwks.json --jwks-cache ~/.cache/jwt-workbench/jwks.json --kid my-kid
 jwt-workbench verify --token "$JWT" --jwks-cache ~/.cache/jwt-workbench/jwks.json --kid my-kid
+```
+
+Verify with a JWKS URL (explicit opt-in) and keep an offline cache:
+
+```bash
+jwt-workbench verify --token "$JWT" --jwks-url "https://issuer.example/.well-known/jwks.json" --jwks-cache ~/.cache/jwt-workbench/jwks.json --kid my-kid
 ```
 
 Export a copy-safe bundle (signature redacted):
@@ -130,3 +142,4 @@ jwt-workbench serve --port 8000
 Then open `http://127.0.0.1:8000` in your browser to decode, verify, sign, and convert keys.
 
 Verification policy controls (expected `aud`/`iss`, clock skew, and required claims) are available in the web UI verify panel.
+The decoded panel includes a claims table with human-time rendering for `exp`/`nbf`/`iat`.
