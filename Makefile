@@ -1,4 +1,4 @@
-.PHONY: setup dev test lint typecheck build release-check check release
+.PHONY: setup dev test lint fmt typecheck build release-check check release
 
 VENV := .venv
 PY := $(VENV)/bin/python
@@ -19,6 +19,9 @@ test:
 lint:
 	$(PY) -m ruff check .
 	$(PY) -m ruff format --check .
+
+fmt:
+	$(PY) -m ruff format .
 
 typecheck:
 	$(PY) -m mypy src tests

@@ -7,14 +7,17 @@
 - Gaps found during codebase exploration
 
 ## Candidate Features To Do
-- [ ] P1: CLI `verify --oidc-issuer <issuer>` to auto-discover `jwks_uri` via OIDC discovery (explicit opt-in network; allow offline fallback via `--jwks-cache`). [impact=4 effort=3 fit=4 diff=2 risk=3 conf=3]
-- [ ] P1: CLI `--quiet` for scripting to suppress warning lines and extra text output (where applicable) without changing JSON payload shapes. [impact=3 effort=2 fit=4 diff=1 risk=2 conf=3]
-- [ ] P2: DX: add `make fmt` to apply Ruff formatting locally (reduce CI-only format drift). [impact=2 effort=1 fit=4 diff=1 risk=1 conf=4]
 - [ ] P3: Add import/export support for saved offline workbench sessions (never persist private keys by default; explicit opt-in only). [impact=4 effort=4 fit=4 diff=3 risk=3 conf=3]
 - [ ] P3: Add import/export for web UI sessions (token + decoded header/payload + policy controls), with explicit redaction of private key material. [impact=3 effort=4 fit=4 diff=2 risk=3 conf=2]
 - [ ] P3: Add an explicit "no-network" mode toggle in web UI that disables any future network-required helpers (defense-in-depth UX). [impact=2 effort=2 fit=3 diff=1 risk=1 conf=3]
 
 ## Implemented
+- [x] 2026-02-09: CLI: add `verify --oidc-issuer` to resolve `jwks_uri` via OIDC discovery (explicit opt-in network) with offline fallback via `--jwks-cache`.
+  Evidence: `src/jwt_workbench/core.py`, `src/jwt_workbench/cli.py`, `tests/test_jwt_core.py`, `tests/test_smoke.py`, `README.md`, `CHANGELOG.md`.
+- [x] 2026-02-09: CLI: add `--quiet` on decode/inspect/validate/verify to suppress warning lines and extra text output for scripting (JSON output unchanged).
+  Evidence: `src/jwt_workbench/cli.py`, `tests/test_smoke.py`, `README.md`, `CHANGELOG.md`.
+- [x] 2026-02-09: DX: add `make fmt` to apply Ruff formatting locally.
+  Evidence: `Makefile`.
 - [x] 2026-02-09: CI: add `workflow_dispatch` trigger so CI can be manually re-run during transient GitHub outages.
   Evidence: `.github/workflows/ci.yml`.
 - [x] 2026-02-09: Publish a minimal JSON schema for web API responses and validate it in tests to prevent accidental breaking changes.
