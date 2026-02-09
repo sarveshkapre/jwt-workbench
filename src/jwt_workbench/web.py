@@ -139,6 +139,16 @@ _INDEX_HTML = """
             <input id="leeway" inputmode="numeric" pattern="[0-9]*" placeholder="0" />
           </div>
           <div class="row">
+            <label for="verifyAt">Verify at (unix s)</label>
+            <input
+              id="verifyAt"
+              inputmode="numeric"
+              pattern="[0-9]*"
+              placeholder="Optional"
+              aria-label="Override current time for verification"
+            />
+          </div>
+          <div class="row">
             <label for="requireClaims">Required claims</label>
             <input
               id="requireClaims"
@@ -312,6 +322,7 @@ const audEl = document.getElementById('aud');
 const issEl = document.getElementById('iss');
 const policyProfileEl = document.getElementById('policyProfile');
 const leewayEl = document.getElementById('leeway');
+const verifyAtEl = document.getElementById('verifyAt');
 const requireClaimsEl = document.getElementById('requireClaims');
 const copyTokenEl = document.getElementById('copyToken');
 const safeExportEl = document.getElementById('safeExport');
@@ -749,6 +760,12 @@ const verify = async () => {
     throw new Error('Clock skew must be a non-negative integer');
   }
 
+  const atRaw = (verifyAtEl.value || '').trim();
+  const at = atRaw === '' ? null : Number.parseInt(atRaw, 10);
+  if (at !== null && (!Number.isFinite(at) || at < 0)) {
+    throw new Error('Verify-at time must be a non-negative integer');
+  }
+
   const aud = parseListInput(audEl.value);
   const iss = parseListInput(issEl.value);
   const requireClaims = parseClaimRequirements(requireClaimsEl.value);
@@ -762,6 +779,7 @@ const verify = async () => {
     aud,
     iss,
     leeway,
+    at,
     require: requireClaims,
   });
   headerEl.value = JSON.stringify(data.header, null, 2);
@@ -977,6 +995,7 @@ clearAllEl.addEventListener('click', async () => {
     issEl.value = '';
     policyProfileEl.value = 'legacy';
     leewayEl.value = '';
+    verifyAtEl.value = '';
     requireClaimsEl.value = '';
     maskClaimsEl.value = '';
     exportOutEl.value = '';
@@ -1012,6 +1031,7 @@ loadSampleEl.addEventListener('click', async () => {
     audEl.value = data.aud || '';
     issEl.value = data.iss || '';
     leewayEl.value = typeof data.leeway === 'number' ? String(data.leeway) : '';
+    verifyAtEl.value = '';
     if (Array.isArray(data.require)) {
       requireClaimsEl.value = data.require.join(',');
       policyProfileEl.value = inferPolicyProfile(data.require);
@@ -1780,6 +1800,7 @@ class JWTWorkbenchHandler(BaseHTTPRequestHandler):
                 iss = payload.get("iss")
                 required_claims = payload.get("require")
                 leeway = payload.get("leeway", 0)
+                at = payload.get("at")
                 if not token:
                     raise ValueError("token is required")
                 if key_type not in {"secret", "pem", "jwk", "jwks"}:
@@ -1838,6 +1859,10 @@ class JWTWorkbenchHandler(BaseHTTPRequestHandler):
                     leeway = int(leeway)
                 if not isinstance(leeway, int) or leeway < 0:
                     raise ValueError("leeway must be a non-negative integer")
+                if isinstance(at, str) and at.strip().isdigit():
+                    at = int(at)
+                if at is not None and (not isinstance(at, int) or at < 0):
+                    raise ValueError("at must be a non-negative integer")
                 key = load_key_from_material(key_text, str(alg), key_type, kid=kid)
                 try:
                     header, data = verify_token_with_key(
@@ -1848,13 +1873,14 @@ class JWTWorkbenchHandler(BaseHTTPRequestHandler):
                         issuer=iss or None,
                         leeway=leeway,
                         required_claims=required_claims or None,
+                        at=at,
                     )
                 except jwt_exceptions.PyJWTError as exc:
                     raise ValueError(
                         format_jwt_error(exc, audience=aud or None, issuer=iss or None)
                     ) from exc
                 hmac_len = infer_hmac_key_len(None, key_text) if key_type == "secret" else None
-                warnings = analyze_claims(data, header, hmac_key_len=hmac_len)
+                warnings = analyze_claims(data, header, hmac_key_len=hmac_len, now=at)
                 self._send_json({"header": header, "payload": data, "warnings": warnings})
                 return
             if self.path == "/api/sign":

@@ -19,7 +19,21 @@ _SUPPORTED_REQUIRED_CLAIMS = frozenset({"exp", "nbf", "iat", "aud", "iss"})
 
 def decode_token(token: str) -> tuple[dict[str, Any], dict[str, Any]]:
     header = jwt.get_unverified_header(token)
-    payload = jwt.decode(token, options={"verify_signature": False})
+    # "Decode" mode is intentionally non-validating: it should parse header/payload even if
+    # time-based claims are expired or issuer/audience don't match.
+    payload = jwt.decode(
+        token,
+        options={
+            "verify_signature": False,
+            "verify_exp": False,
+            "verify_nbf": False,
+            "verify_iat": False,
+            "verify_aud": False,
+            "verify_iss": False,
+            "verify_sub": False,
+            "verify_jti": False,
+        },
+    )
     return header, payload
 
 
@@ -237,6 +251,7 @@ def verify_token_with_key(
     issuer: str | list[str] | None = None,
     leeway: int = 0,
     required_claims: str | list[str] | None = None,
+    at: int | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     header = jwt.get_unverified_header(token)
     alg = alg or header.get("alg")
@@ -252,6 +267,12 @@ def verify_token_with_key(
     }
     if required:
         options["require"] = required
+    if at is not None:
+        # PyJWT doesn't support overriding current time; when requested we disable built-in
+        # time validation and apply our own checks against the caller-provided timestamp.
+        options["verify_exp"] = False
+        options["verify_nbf"] = False
+        options["verify_iat"] = False
     payload = jwt.decode(
         token,
         key=key,
@@ -261,6 +282,8 @@ def verify_token_with_key(
         leeway=leeway,
         options=options,
     )
+    if at is not None:
+        _validate_time_claims(payload, now=float(at), leeway=float(leeway))
     if issuer_allowlist:
         _enforce_issuer_allowlist(payload, issuer_allowlist)
     return header, payload
@@ -279,6 +302,7 @@ def verify_token(
     leeway: int = 0,
     jwks_cache_path: str | None = None,
     required_claims: str | list[str] | None = None,
+    at: int | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     header = jwt.get_unverified_header(token)
     alg = alg or header.get("alg")
@@ -305,26 +329,16 @@ def verify_token(
             "missing key material; provide --key, --key-text, --jwk, --jwks, or --jwks-cache"
         )
 
-    issuer_value, issuer_allowlist = _normalize_allowlist(issuer)
-    required = _normalize_required_claims(required_claims)
-    options: dict[str, Any] = {
-        "verify_aud": audience is not None,
-        "verify_iss": issuer_value is not None,
-    }
-    if required:
-        options["require"] = required
-    payload = jwt.decode(
+    return verify_token_with_key(
         token,
         key=key,
-        algorithms=[alg],
+        alg=alg,
         audience=audience,
-        issuer=issuer_value,
+        issuer=issuer,
         leeway=leeway,
-        options=options,
+        required_claims=required_claims,
+        at=at,
     )
-    if issuer_allowlist:
-        _enforce_issuer_allowlist(payload, issuer_allowlist)
-    return header, payload
 
 
 def sign_token(
@@ -402,6 +416,8 @@ def analyze_claims(
     payload: dict[str, Any],
     header: dict[str, Any],
     hmac_key_len: int | None = None,
+    *,
+    now: int | None = None,
 ) -> list[str]:
     warnings: list[str] = []
     alg = header.get("alg")
@@ -410,16 +426,16 @@ def analyze_claims(
     if alg and alg.startswith("HS") and hmac_key_len is not None and hmac_key_len < 32:
         warnings.append("HMAC secret is shorter than 32 bytes (weak)")
 
-    now = int(time.time())
+    now_ts = int(time.time()) if now is None else int(now)
     exp = payload.get("exp")
     if exp is None:
         warnings.append("missing exp claim")
     else:
         try:
             exp_int = int(exp)
-            if exp_int < now:
+            if exp_int < now_ts:
                 warnings.append("token is expired")
-            elif exp_int - now < 300:
+            elif exp_int - now_ts < 300:
                 warnings.append("token expires within 5 minutes")
         except (TypeError, ValueError):
             warnings.append("exp claim is not an integer")
@@ -427,7 +443,7 @@ def analyze_claims(
     nbf = payload.get("nbf")
     if nbf is not None:
         try:
-            if int(nbf) > now:
+            if int(nbf) > now_ts:
                 warnings.append("token not valid yet (nbf in the future)")
         except (TypeError, ValueError):
             warnings.append("nbf claim is not an integer")
@@ -435,7 +451,7 @@ def analyze_claims(
     iat = payload.get("iat")
     if iat is not None:
         try:
-            if int(iat) > now:
+            if int(iat) > now_ts:
                 warnings.append("iat is in the future")
         except (TypeError, ValueError):
             warnings.append("iat claim is not an integer")
@@ -458,6 +474,36 @@ def analyze_claims(
         warnings.append("iss claim must be a string")
 
     return warnings
+
+
+def _validate_time_claims(payload: dict[str, Any], *, now: float, leeway: float) -> None:
+    if "exp" in payload:
+        try:
+            exp = int(payload["exp"])
+        except ValueError:
+            raise jwt_exceptions.DecodeError(
+                "Expiration Time claim (exp) must be an integer."
+            ) from None
+        if exp <= (now - leeway):
+            raise jwt_exceptions.ExpiredSignatureError("Signature has expired")
+
+    if "nbf" in payload:
+        try:
+            nbf = int(payload["nbf"])
+        except ValueError:
+            raise jwt_exceptions.DecodeError("Not Before claim (nbf) must be an integer.") from None
+        if nbf > (now + leeway):
+            raise jwt_exceptions.ImmatureSignatureError("The token is not yet valid (nbf)")
+
+    if "iat" in payload:
+        try:
+            iat = int(payload["iat"])
+        except ValueError:
+            raise jwt_exceptions.InvalidIssuedAtError(
+                "Issued At claim (iat) must be an integer."
+            ) from None
+        if iat > (now + leeway):
+            raise jwt_exceptions.ImmatureSignatureError("The token is not yet valid (iat)")
 
 
 def infer_hmac_key_len(key_path: str | None, key_text: str | None) -> int | None:

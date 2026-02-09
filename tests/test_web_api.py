@@ -94,6 +94,27 @@ def test_verify_required_claim_error(web_base_url: str) -> None:
     assert verified["error"] == "missing required claim: iss"
 
 
+def test_verify_at_time_override(web_base_url: str) -> None:
+    sample_status, _, sample = _post_json(web_base_url, "/api/sample", {"kind": "hs256"})
+    assert sample_status == 200
+    token = sample["token"]
+    exp = int(sample["payload"]["exp"])
+
+    verify_status, _, verified = _post_json(
+        web_base_url,
+        "/api/verify",
+        {
+            "token": token,
+            "alg": "HS256",
+            "key_type": "secret",
+            "key_text": sample["key_text"],
+            "at": exp + 1,
+        },
+    )
+    assert verify_status == 400
+    assert verified["error"] == "token is expired"
+
+
 def test_verify_rejects_non_json_content_type(web_base_url: str) -> None:
     status, _, payload = _post_json(
         web_base_url,

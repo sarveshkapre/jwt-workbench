@@ -134,6 +134,20 @@ def test_hs256_sign_verify_decode() -> None:
     assert verified["sub"] == "user123"
 
 
+def test_decode_does_not_validate_exp() -> None:
+    now = int(time.time())
+    token = sign_token(
+        {"sub": "expired-user", "exp": now - 10},
+        key_path=None,
+        key_text="secret123",
+        alg="HS256",
+        kid=None,
+    )
+    header, decoded = decode_token(token)
+    assert header["alg"] == "HS256"
+    assert decoded["sub"] == "expired-user"
+
+
 def test_format_jwt_error_iat_nbf_and_time_claim_integer_errors() -> None:
     assert (
         format_jwt_error(jwt_exceptions.ImmatureSignatureError("The token is not yet valid (iat)"))
@@ -475,6 +489,101 @@ def test_verify_aud_iss_with_leeway() -> None:
             issuer="my-iss",
             leeway=5,
         )
+
+
+def test_verify_at_overrides_time_claims_and_leeway() -> None:
+    now = int(time.time())
+    token = sign_token(
+        {"sub": "x", "exp": now + 30},
+        key_path=None,
+        key_text="secret123",
+        alg="HS256",
+        kid=None,
+    )
+
+    with pytest.raises(jwt_exceptions.ExpiredSignatureError):
+        verify_token(
+            token=token,
+            key_path=None,
+            key_text="secret123",
+            jwk_path=None,
+            jwks_path=None,
+            jwks_cache_path=None,
+            kid=None,
+            alg="HS256",
+            audience=None,
+            issuer=None,
+            leeway=0,
+            at=now + 31,
+        )
+
+    header, verified = verify_token(
+        token=token,
+        key_path=None,
+        key_text="secret123",
+        jwk_path=None,
+        jwks_path=None,
+        jwks_cache_path=None,
+        kid=None,
+        alg="HS256",
+        audience=None,
+        issuer=None,
+        leeway=10,
+        at=now + 31,
+    )
+    assert header["alg"] == "HS256"
+    assert verified["sub"] == "x"
+
+
+def test_verify_at_formats_iat_and_nbf_errors() -> None:
+    now = int(time.time())
+    token_iat = sign_token(
+        {"exp": now + 120, "iat": now + 60},
+        key_path=None,
+        key_text="secret123",
+        alg="HS256",
+        kid=None,
+    )
+    with pytest.raises(jwt_exceptions.PyJWTError) as excinfo:
+        verify_token(
+            token=token_iat,
+            key_path=None,
+            key_text="secret123",
+            jwk_path=None,
+            jwks_path=None,
+            jwks_cache_path=None,
+            kid=None,
+            alg="HS256",
+            audience=None,
+            issuer=None,
+            leeway=0,
+            at=now,
+        )
+    assert format_jwt_error(excinfo.value) == "iat is in the future"
+
+    token_nbf = sign_token(
+        {"exp": now + 120, "nbf": now + 60},
+        key_path=None,
+        key_text="secret123",
+        alg="HS256",
+        kid=None,
+    )
+    with pytest.raises(jwt_exceptions.PyJWTError) as excinfo:
+        verify_token(
+            token=token_nbf,
+            key_path=None,
+            key_text="secret123",
+            jwk_path=None,
+            jwks_path=None,
+            jwks_cache_path=None,
+            kid=None,
+            alg="HS256",
+            audience=None,
+            issuer=None,
+            leeway=0,
+            at=now,
+        )
+    assert format_jwt_error(excinfo.value) == "token is not valid yet (nbf in the future)"
 
 
 def test_verify_audience_allowlist() -> None:

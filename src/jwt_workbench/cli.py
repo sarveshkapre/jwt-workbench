@@ -82,8 +82,10 @@ def _emit_warnings(
     payload: dict[str, Any],
     header: dict[str, Any],
     hmac_len: int | None = None,
+    *,
+    now: int | None = None,
 ) -> None:
-    warnings = analyze_claims(payload, header, hmac_key_len=hmac_len)
+    warnings = analyze_claims(payload, header, hmac_key_len=hmac_len, now=now)
     if not warnings:
         return
     for w in warnings:
@@ -208,6 +210,8 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     _validate_verify_args(args)
     if args.token == "-" and args.key_text == "-":
         raise ValueError("cannot read both token and key from stdin; provide one normally")
+    if args.at is not None and int(args.at) < 0:
+        raise ValueError("--at must be a non-negative integer")
 
     key_text: str | None
     if args.key_text is None:
@@ -239,10 +243,11 @@ def _cmd_verify(args: argparse.Namespace) -> int:
             issuer=issuer,
             leeway=args.leeway,
             required_claims=required_claims,
+            at=args.at,
         )
     except jwt_exceptions.PyJWTError as exc:
         raise ValueError(format_jwt_error(exc, audience=audience, issuer=issuer)) from exc
-    _emit_warnings(payload, header, hmac_len)
+    _emit_warnings(payload, header, hmac_len, now=args.at)
     _print_json({"valid": True, "header": header, "payload": payload})
     return 0
 
@@ -375,6 +380,11 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=0,
         help="Clock skew in seconds when verifying exp/nbf/iat (default: 0)",
+    )
+    p_verify.add_argument(
+        "--at",
+        type=int,
+        help="Override current time as unix seconds for exp/nbf/iat verification (debugging)",
     )
     p_verify.add_argument(
         "--require",
