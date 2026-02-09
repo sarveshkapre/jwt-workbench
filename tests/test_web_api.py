@@ -58,6 +58,10 @@ def test_sample_and_security_headers(web_base_url: str) -> None:
     assert payload["require"] == ["exp", "aud", "iss"]
     assert headers["Cache-Control"] == "no-store"
     assert headers["X-Content-Type-Options"] == "nosniff"
+    assert headers["X-Frame-Options"] == "DENY"
+    assert "default-src 'self'" in headers["Content-Security-Policy"]
+    assert headers["Cross-Origin-Opener-Policy"] == "same-origin"
+    assert headers["Cross-Origin-Resource-Policy"] == "same-origin"
 
 
 def test_verify_required_claim_error(web_base_url: str) -> None:

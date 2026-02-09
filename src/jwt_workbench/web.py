@@ -1423,6 +1423,23 @@ class JWTWorkbenchHandler(BaseHTTPRequestHandler):
         self.send_header("Pragma", "no-cache")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Frame-Options", "DENY")
+        # Local-only app; lock resources to same-origin and block embedding.
+        self.send_header(
+            "Content-Security-Policy",
+            (
+                "default-src 'self'; "
+                "script-src 'self'; "
+                "style-src 'self'; "
+                "connect-src 'self'; "
+                "img-src 'self' data:; "
+                "base-uri 'none'; "
+                "form-action 'none'; "
+                "frame-ancestors 'none'"
+            ),
+        )
+        self.send_header("Cross-Origin-Opener-Policy", "same-origin")
+        self.send_header("Cross-Origin-Resource-Policy", "same-origin")
 
     def _send_json(self, payload: dict[str, Any], status: HTTPStatus = HTTPStatus.OK) -> None:
         data = json.dumps(payload).encode("utf-8")
