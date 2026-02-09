@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -14,10 +15,12 @@ from .core import (
     format_jwt_error,
     infer_hmac_key_len,
     jwk_from_pem,
+    jwk_thumbprint_sha256,
     jwks_from_pem,
+    load_verification_key_and_public_jwk,
     redact_jws_signature,
     sign_token,
-    verify_token,
+    verify_token_with_key,
 )
 from .samples import generate_sample
 from .version import __version__
@@ -184,6 +187,128 @@ def _cmd_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def _format_allowlist_warning(label: str, expected: str | list[str] | None) -> str:
+    if expected is None:
+        return f"{label} claim mismatch"
+    if isinstance(expected, list):
+        if not expected:
+            return f"{label} claim mismatch"
+        return f"{label} claim mismatch (expected one of: {', '.join(expected)})"
+    if not expected.strip():
+        return f"{label} claim mismatch"
+    return f"{label} claim mismatch (expected: {expected})"
+
+
+def _emit_warning_lines(warnings: list[str]) -> None:
+    for w in warnings:
+        print(f"warning: {w}", file=sys.stderr)
+
+
+def _cmd_validate(args: argparse.Namespace) -> int:
+    token = _load_token(args.token)
+    header, payload = decode_token(token)
+
+    if args.at is not None and int(args.at) < 0:
+        raise ValueError("--at must be a non-negative integer")
+    now = int(args.at) if args.at is not None else int(time.time())
+
+    leeway = int(args.leeway)
+    if leeway < 0:
+        raise ValueError("leeway must be a non-negative integer")
+
+    warnings = analyze_claims(payload, header, now=now)
+
+    # If leeway is specified, recompute the "in the future" / "expired" warnings using leeway
+    # semantics similar to verification.
+    if leeway:
+        filtered: list[str] = []
+        for w in warnings:
+            if w in {
+                "token is expired",
+                "token not valid yet (nbf in the future)",
+                "iat is in the future",
+            }:
+                continue
+            filtered.append(w)
+        warnings = filtered
+
+        exp = payload.get("exp")
+        if exp is not None:
+            try:
+                exp_int = int(exp)
+                if exp_int <= now - leeway:
+                    warnings.append("token is expired")
+                elif exp_int - now < 300:
+                    warnings.append("token expires within 5 minutes")
+            except (TypeError, ValueError):
+                # analyze_claims already covers non-int exp
+                pass
+
+        nbf = payload.get("nbf")
+        if nbf is not None:
+            try:
+                if int(nbf) > now + leeway:
+                    warnings.append("token not valid yet (nbf in the future)")
+            except (TypeError, ValueError):
+                pass
+
+        iat = payload.get("iat")
+        if iat is not None:
+            try:
+                if int(iat) > now + leeway:
+                    warnings.append("iat is in the future")
+            except (TypeError, ValueError):
+                pass
+
+    audience = _parse_allowlist(args.aud)
+    if audience is not None:
+        aud_claim = payload.get("aud")
+        aud_values: list[str] = []
+        if isinstance(aud_claim, str):
+            aud_values = [aud_claim]
+        elif isinstance(aud_claim, list):
+            aud_values = [item for item in aud_claim if isinstance(item, str)]
+        expected_list = audience if isinstance(audience, list) else [audience]
+        if not aud_values or not any(aud in expected_list for aud in aud_values):
+            warnings.append(_format_allowlist_warning("aud", audience))
+
+    issuer = _parse_allowlist(args.iss)
+    if issuer is not None:
+        iss_claim = payload.get("iss")
+        expected_list = issuer if isinstance(issuer, list) else [issuer]
+        if not isinstance(iss_claim, str) or iss_claim not in expected_list:
+            warnings.append(_format_allowlist_warning("iss", issuer))
+
+    required_claims = _parse_required_claims(args.require)
+    if required_claims is None:
+        policy = str(getattr(args, "policy", "legacy") or "legacy")
+        if policy not in _VERIFY_POLICY_REQUIRED_CLAIMS:
+            raise ValueError("unknown policy profile")
+        required_claims = _VERIFY_POLICY_REQUIRED_CLAIMS[policy]
+    if required_claims:
+        for claim in required_claims:
+            if claim not in payload:
+                warnings.append(f"missing required claim: {claim}")
+
+    # Keep a stable order while deduping.
+    warnings = list(dict.fromkeys(warnings))
+
+    _print_json(
+        {
+            "ok": not warnings,
+            "header": header,
+            "payload": payload,
+            "warnings": warnings,
+            "now": now,
+            "leeway": leeway,
+        }
+    )
+    if warnings:
+        _emit_warning_lines(warnings)
+        return 2
+    return 0
+
+
 def _cmd_sample(args: argparse.Namespace) -> int:
     sample = generate_sample(str(args.kind), exp_seconds=int(args.exp_seconds))
     output: dict[str, Any] = {
@@ -221,6 +346,12 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     else:
         key_text = _load_text(args.key_text, "key material")
 
+    token = _load_token(args.token)
+    header, _ = decode_token(token)
+    alg = args.alg or header.get("alg")
+    if not alg:
+        raise ValueError("missing alg in header; supply --alg")
+
     hmac_len = infer_hmac_key_len(args.key, key_text)
     audience = _parse_allowlist(args.aud)
     issuer = _parse_allowlist(args.iss)
@@ -231,17 +362,29 @@ def _cmd_verify(args: argparse.Namespace) -> int:
             raise ValueError("unknown policy profile")
         required_claims = _VERIFY_POLICY_REQUIRED_CLAIMS[policy]
 
+    key, public_jwk = load_verification_key_and_public_jwk(
+        key_path=args.key,
+        key_text=key_text,
+        jwk_path=args.jwk,
+        jwks_path=args.jwks,
+        jwks_url=args.jwks_url,
+        jwks_cache_path=args.jwks_cache,
+        kid=args.kid,
+        alg=str(alg),
+    )
+
+    thumbprint: str | None = None
+    if public_jwk is not None:
+        try:
+            thumbprint = jwk_thumbprint_sha256(public_jwk)
+        except ValueError:
+            thumbprint = None
+
     try:
-        header, payload = verify_token(
-            token=_load_token(args.token),
-            key_path=args.key,
-            key_text=key_text,
-            jwk_path=args.jwk,
-            jwks_path=args.jwks,
-            jwks_url=args.jwks_url,
-            jwks_cache_path=args.jwks_cache,
-            kid=args.kid,
-            alg=args.alg,
+        header, payload = verify_token_with_key(
+            token=token,
+            key=key,
+            alg=str(alg),
             audience=audience,
             issuer=issuer,
             leeway=args.leeway,
@@ -251,7 +394,10 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     except jwt_exceptions.PyJWTError as exc:
         raise ValueError(format_jwt_error(exc, audience=audience, issuer=issuer)) from exc
     _emit_warnings(payload, header, hmac_len, now=args.at)
-    _print_json({"valid": True, "header": header, "payload": payload})
+    output: dict[str, Any] = {"valid": True, "header": header, "payload": payload}
+    if thumbprint:
+        output["key_thumbprint_sha256"] = thumbprint
+    _print_json(output)
     return 0
 
 
@@ -306,6 +452,53 @@ def main(argv: list[str] | None = None) -> int:
         "--no-warnings", action="store_true", help="Do not print warnings to stderr"
     )
     p_inspect.set_defaults(func=_cmd_inspect)
+
+    p_validate = sub.add_parser(
+        "validate",
+        help="Decode + run claim hygiene checks (no signature verification; exits non-zero on issues)",
+    )
+    p_validate.add_argument(
+        "--token", required=True, help="JWT string (use '-' to read from stdin)"
+    )
+    p_validate.add_argument(
+        "--policy",
+        choices=["legacy", "default", "strict"],
+        default="legacy",
+        help=(
+            "Validation policy preset (default: legacy). "
+            "legacy=require nothing; default=require exp; strict=require exp,aud,iss."
+        ),
+    )
+    p_validate.add_argument(
+        "--aud",
+        action="append",
+        help="Expected audience (repeatable or comma-separated; checks aud claim values)",
+    )
+    p_validate.add_argument(
+        "--iss",
+        action="append",
+        help="Expected issuer (repeatable or comma-separated; checks iss claim value)",
+    )
+    p_validate.add_argument(
+        "--leeway",
+        type=int,
+        default=0,
+        help="Clock skew in seconds when evaluating exp/nbf/iat warnings (default: 0)",
+    )
+    p_validate.add_argument(
+        "--at",
+        type=int,
+        help="Override current time as unix seconds for exp/nbf/iat warnings (debugging)",
+    )
+    p_validate.add_argument(
+        "--require",
+        action="append",
+        help=(
+            "Require claim(s) to exist (repeatable or comma-separated; supported: exp, nbf, "
+            "iat, aud, iss)"
+        ),
+    )
+    p_validate.set_defaults(func=_cmd_validate)
 
     p_export = sub.add_parser(
         "export", help="Export a copy-safe JSON bundle (redacts the signature)"

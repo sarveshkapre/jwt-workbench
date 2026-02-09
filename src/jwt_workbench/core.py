@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
+import os
+import tempfile
 import time
 import urllib.parse
 import urllib.request
@@ -96,6 +100,15 @@ def _load_key_from_text(text: str, alg: str) -> Any:
     return text
 
 
+def _public_key_from_pem_text(pem_text: str) -> Any:
+    data = pem_text.encode("utf-8")
+    try:
+        key_any: Any = load_pem_public_key(data)
+    except ValueError:
+        key_any = load_pem_private_key(data, password=None)
+    return key_any.public_key() if hasattr(key_any, "public_key") else key_any
+
+
 def _load_key_from_file(path: Path, alg: str) -> Any:
     content = path.read_text(encoding="utf-8").strip()
     if _looks_like_json(content):
@@ -115,6 +128,10 @@ def _load_key_from_file(path: Path, alg: str) -> Any:
 
 
 def _select_jwks_key(jwks: dict[str, Any], kid: str | None, *, alg: str | None) -> Any:
+    return _jwk_to_key(_select_jwks_jwk(jwks, kid, alg=alg), alg=alg)
+
+
+def _select_jwks_jwk(jwks: dict[str, Any], kid: str | None, *, alg: str | None) -> dict[str, Any]:
     keys = jwks.get("keys", [])
     if not keys:
         raise ValueError("JWKS has no keys")
@@ -129,17 +146,17 @@ def _select_jwks_key(jwks: dict[str, Any], kid: str | None, *, alg: str | None) 
     if kid:
         for jwk in jwk_candidates:
             if jwk.get("kid") == kid:
-                return _jwk_to_key(jwk, alg=alg)
+                return jwk
         raise ValueError(f"kid not found in JWKS: {kid}")
 
     if len(jwk_candidates) == 1:
-        return _jwk_to_key(jwk_candidates[0], alg=alg)
+        return jwk_candidates[0]
 
     expected_kty = _expected_jwk_kty_for_alg(alg) if alg else None
     if expected_kty:
         matches = [jwk for jwk in jwk_candidates if jwk.get("kty") == expected_kty]
         if len(matches) == 1:
-            return _jwk_to_key(matches[0], alg=alg)
+            return matches[0]
 
     raise ValueError("JWKS has multiple keys; provide --kid")
 
@@ -218,20 +235,14 @@ def _load_jwks_from_paths(
         if jwks_cache_path:
             cache_path = Path(jwks_cache_path)
             cache_path.parent.mkdir(parents=True, exist_ok=True)
-            cache_path.write_text(
-                json.dumps(jwks, indent=2, sort_keys=True),
-                encoding="utf-8",
-            )
+            _write_json_atomic(cache_path, jwks)
         return jwks
     if jwks_path:
         jwks = cast(dict[str, Any], json.loads(Path(jwks_path).read_text(encoding="utf-8")))
         if jwks_cache_path:
             cache_path = Path(jwks_cache_path)
             cache_path.parent.mkdir(parents=True, exist_ok=True)
-            cache_path.write_text(
-                json.dumps(jwks, indent=2, sort_keys=True),
-                encoding="utf-8",
-            )
+            _write_json_atomic(cache_path, jwks)
         return jwks
     if jwks_cache_path:
         cache_path = Path(jwks_cache_path)
@@ -332,23 +343,16 @@ def verify_token(
     if alg == "none":
         raise ValueError("refusing to verify alg=none")
 
-    key: Any
-    if jwk_path:
-        jwk = json.loads(Path(jwk_path).read_text(encoding="utf-8"))
-        if not isinstance(jwk, dict):
-            raise ValueError("JWK must be an object")
-        key = _jwk_to_key(cast(dict[str, Any], jwk), alg=alg)
-    elif jwks_path or jwks_cache_path or jwks_url:
-        jwks = _load_jwks_from_paths(jwks_path, jwks_cache_path, jwks_url)
-        key = _select_jwks_key(jwks, kid, alg=alg)
-    elif key_path:
-        key = _load_key_from_file(Path(key_path), alg)
-    elif key_text:
-        key = _load_key_from_text(key_text, alg)
-    else:
-        raise ValueError(
-            "missing key material; provide --key, --key-text, --jwk, --jwks, --jwks-url, or --jwks-cache"
-        )
+    key, _ = load_verification_key_and_public_jwk(
+        key_path=key_path,
+        key_text=key_text,
+        jwk_path=jwk_path,
+        jwks_path=jwks_path,
+        jwks_url=jwks_url,
+        jwks_cache_path=jwks_cache_path,
+        kid=kid,
+        alg=alg,
+    )
 
     return verify_token_with_key(
         token,
@@ -359,6 +363,71 @@ def verify_token(
         leeway=leeway,
         required_claims=required_claims,
         at=at,
+    )
+
+
+def load_verification_key_and_public_jwk(
+    *,
+    key_path: str | None,
+    key_text: str | None,
+    jwk_path: str | None,
+    jwks_path: str | None,
+    jwks_url: str | None,
+    jwks_cache_path: str | None,
+    kid: str | None,
+    alg: str,
+) -> tuple[Any, dict[str, Any] | None]:
+    if jwk_path:
+        raw = json.loads(Path(jwk_path).read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            raise ValueError("JWK must be an object")
+        jwk = cast(dict[str, Any], raw)
+        return _jwk_to_key(jwk, alg=alg), jwk
+
+    if jwks_path or jwks_cache_path or jwks_url:
+        jwks = _load_jwks_from_paths(jwks_path, jwks_cache_path, jwks_url)
+        jwk = _select_jwks_jwk(jwks, kid, alg=alg)
+        return _jwk_to_key(jwk, alg=alg), jwk
+
+    if key_path:
+        content = Path(key_path).read_text(encoding="utf-8").strip()
+        if _looks_like_json(content):
+            obj = json.loads(content)
+            if not isinstance(obj, dict):
+                raise ValueError("invalid JWK file")
+            if "keys" in obj:
+                raise ValueError("use jwks loader for JWKS files")
+            jwk = cast(dict[str, Any], obj)
+            return _jwk_to_key(jwk, alg=alg), jwk
+        if _looks_like_pem(content):
+            if alg.startswith("HS"):
+                raise ValueError("refusing to use PEM as HMAC secret")
+            key = _public_key_from_pem_text(content)
+            public_jwk: dict[str, Any] | None
+            try:
+                public_jwk = jwk_from_pem(content)
+            except Exception:
+                public_jwk = None
+            return key, public_jwk
+        return _load_key_from_text(content, alg), None
+
+    if key_text:
+        kind = "secret" if alg.startswith("HS") else "pem"
+        if kind == "pem":
+            key = _public_key_from_pem_text(key_text)
+        else:
+            key = _load_key_from_text(key_text, alg)
+        if kind == "pem":
+            public_jwk = None
+            try:
+                public_jwk = jwk_from_pem(key_text)
+            except Exception:
+                public_jwk = None
+            return key, public_jwk
+        return key, None
+
+    raise ValueError(
+        "missing key material; provide --key, --key-text, --jwk, --jwks, --jwks-url, or --jwks-cache"
     )
 
 
@@ -427,6 +496,110 @@ def jwk_from_pem(pem_text: str, kid: str | None = None) -> dict[str, Any]:
     if kid:
         jwk["kid"] = kid
     return jwk
+
+
+def jwk_thumbprint_sha256(jwk: dict[str, Any]) -> str:
+    kty = jwk.get("kty")
+    if not isinstance(kty, str) or not kty.strip():
+        raise ValueError("JWK missing kty")
+
+    thumb_obj: dict[str, str]
+    if kty == "RSA":
+        e = jwk.get("e")
+        n = jwk.get("n")
+        if not isinstance(e, str) or not e:
+            raise ValueError("RSA JWK missing e")
+        if not isinstance(n, str) or not n:
+            raise ValueError("RSA JWK missing n")
+        thumb_obj = {"e": e, "kty": "RSA", "n": n}
+    elif kty == "EC":
+        crv = jwk.get("crv")
+        x = jwk.get("x")
+        y = jwk.get("y")
+        if not isinstance(crv, str) or not crv:
+            raise ValueError("EC JWK missing crv")
+        if not isinstance(x, str) or not x:
+            raise ValueError("EC JWK missing x")
+        if not isinstance(y, str) or not y:
+            raise ValueError("EC JWK missing y")
+        thumb_obj = {"crv": crv, "kty": "EC", "x": x, "y": y}
+    elif kty == "OKP":
+        crv = jwk.get("crv")
+        x = jwk.get("x")
+        if not isinstance(crv, str) or not crv:
+            raise ValueError("OKP JWK missing crv")
+        if not isinstance(x, str) or not x:
+            raise ValueError("OKP JWK missing x")
+        thumb_obj = {"crv": crv, "kty": "OKP", "x": x}
+    else:
+        raise ValueError(f"unsupported JWK kty for thumbprint: {kty}")
+
+    canonical = json.dumps(thumb_obj, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    digest = hashlib.sha256(canonical).digest()
+    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+
+
+def _write_json_atomic(path: Path, obj: dict[str, Any]) -> None:
+    # Best-effort atomic write to avoid partial cache files.
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(obj, indent=2, sort_keys=True).encode("utf-8")
+    tmp_path: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=str(path.parent),
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as tmp:
+            tmp_path = tmp.name
+            tmp.write(payload)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+        os.replace(tmp_path, path)
+    finally:
+        if tmp_path is not None and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        # Not all platforms/filesystems support chmod semantics; ignore.
+        pass
+
+
+def load_key_and_public_jwk_from_material(
+    key_text: str,
+    alg: str,
+    kind: str,
+    kid: str | None = None,
+) -> tuple[Any, dict[str, Any] | None]:
+    if kind == "secret":
+        return _load_key_from_text(key_text, alg), None
+    if kind == "pem":
+        if _looks_like_json(key_text):
+            raise ValueError("expected PEM text, got JSON")
+        if alg.startswith("HS"):
+            raise ValueError("refusing to use PEM as HMAC secret")
+        key = _public_key_from_pem_text(key_text)
+        return key, jwk_from_pem(key_text, kid=kid)
+    if kind == "jwk":
+        obj = json.loads(key_text)
+        if not isinstance(obj, dict):
+            raise ValueError("JWK must be an object")
+        if "keys" in obj:
+            raise ValueError("use jwks for multiple keys")
+        jwk = cast(dict[str, Any], obj)
+        return _jwk_to_key(jwk, alg=alg), jwk
+    if kind == "jwks":
+        obj = json.loads(key_text)
+        if not isinstance(obj, dict):
+            raise ValueError("JWKS must be an object")
+        jwk = _select_jwks_jwk(cast(dict[str, Any], obj), kid, alg=alg)
+        return _jwk_to_key(jwk, alg=alg), jwk
+    raise ValueError(f"unknown key kind: {kind}")
 
 
 def jwks_from_pem(pem_text: str, kid: str | None = None) -> dict[str, Any]:

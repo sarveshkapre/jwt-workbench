@@ -70,6 +70,38 @@ def test_verify_invalid_token_is_clean_error() -> None:
     assert "error:" in proc.stderr.lower()
 
 
+def test_validate_exit_codes_and_output() -> None:
+    sample = subprocess.run(
+        [sys.executable, "-m", "jwt_workbench", "sample", "--kind", "hs256"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert sample.returncode == 0
+    token = json.loads(sample.stdout)["token"]
+
+    ok = subprocess.run(
+        [sys.executable, "-m", "jwt_workbench", "validate", "--token", token],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert ok.returncode == 0
+    ok_payload = json.loads(ok.stdout)
+    assert ok_payload["ok"] is True
+
+    bad = subprocess.run(
+        [sys.executable, "-m", "jwt_workbench", "validate", "--token", token, "--aud", "wrong"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert bad.returncode != 0
+    bad_payload = json.loads(bad.stdout)
+    assert bad_payload["ok"] is False
+    assert any("aud claim mismatch" in str(item) for item in bad_payload.get("warnings", []))
+
+
 def test_decode_reads_token_from_stdin() -> None:
     sample = subprocess.run(
         [sys.executable, "-m", "jwt_workbench", "sample", "--kind", "none"],
@@ -144,6 +176,9 @@ def test_verify_reads_key_from_stdin() -> None:
         text=True,
     )
     assert proc.returncode == 0
+    verified = json.loads(proc.stdout)
+    assert verified["valid"] is True
+    assert isinstance(verified.get("key_thumbprint_sha256"), str)
 
 
 def test_sign_accepts_headers() -> None:

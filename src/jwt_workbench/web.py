@@ -13,8 +13,9 @@ from .core import (
     format_jwt_error,
     infer_hmac_key_len,
     jwk_from_pem,
+    jwk_thumbprint_sha256,
     jwks_from_pem,
-    load_key_from_material,
+    load_key_and_public_jwk_from_material,
     redact_jws_signature,
     sign_token,
     verify_token_with_key,
@@ -882,7 +883,8 @@ const verify = async () => {
   payloadEl.value = JSON.stringify(data.payload, null, 2);
   updateClaimsTable(data.payload);
   setWarnings(data.warnings || []);
-  setStatus('Verified', 'ok');
+  const thumb = data.key_thumbprint_sha256 ? `Verified (key: ${data.key_thumbprint_sha256})` : 'Verified';
+  setStatus(thumb, 'ok');
 };
 
 const sign = async () => {
@@ -2016,7 +2018,15 @@ class JWTWorkbenchHandler(BaseHTTPRequestHandler):
                     at = int(at)
                 if at is not None and (not isinstance(at, int) or at < 0):
                     raise ValueError("at must be a non-negative integer")
-                key = load_key_from_material(key_text, str(alg), key_type, kid=kid)
+                key, public_jwk = load_key_and_public_jwk_from_material(
+                    key_text, str(alg), key_type, kid=str(kid) if kid else None
+                )
+                key_thumbprint: str | None = None
+                if public_jwk is not None:
+                    try:
+                        key_thumbprint = jwk_thumbprint_sha256(public_jwk)
+                    except ValueError:
+                        key_thumbprint = None
                 try:
                     header, data = verify_token_with_key(
                         token,
@@ -2034,7 +2044,10 @@ class JWTWorkbenchHandler(BaseHTTPRequestHandler):
                     ) from exc
                 hmac_len = infer_hmac_key_len(None, key_text) if key_type == "secret" else None
                 warnings = analyze_claims(data, header, hmac_key_len=hmac_len, now=at)
-                self._send_json({"header": header, "payload": data, "warnings": warnings})
+                response: dict[str, Any] = {"header": header, "payload": data, "warnings": warnings}
+                if key_thumbprint:
+                    response["key_thumbprint_sha256"] = key_thumbprint
+                self._send_json(response)
                 return
             if self.path == "/api/sign":
                 payload_text = payload.get("payload")

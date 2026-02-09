@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 
+from jwt_workbench.core import jwk_from_pem, jwk_thumbprint_sha256
 from jwt_workbench.web import JWTWorkbenchHandler
 
 
@@ -113,6 +114,27 @@ def test_verify_at_time_override(web_base_url: str) -> None:
     )
     assert verify_status == 400
     assert verified["error"] == "token is expired"
+
+
+def test_verify_returns_key_thumbprint_for_asymmetric_keys(web_base_url: str) -> None:
+    sample_status, _, sample = _post_json(web_base_url, "/api/sample", {"kind": "rs256-pem"})
+    assert sample_status == 200
+
+    expected = jwk_thumbprint_sha256(jwk_from_pem(sample["key_text"]))
+
+    verify_status, _, verified = _post_json(
+        web_base_url,
+        "/api/verify",
+        {
+            "token": sample["token"],
+            "alg": "RS256",
+            "key_type": "pem",
+            "key_text": sample["key_text"],
+        },
+    )
+    assert verify_status == 200
+    assert verified["header"]["alg"] == "RS256"
+    assert verified["key_thumbprint_sha256"] == expected
 
 
 def test_verify_rejects_non_json_content_type(web_base_url: str) -> None:

@@ -15,12 +15,13 @@ from jwt_workbench.core import (
     decode_token,
     format_jwt_error,
     jwk_from_pem,
+    jwk_thumbprint_sha256,
     jwks_from_pem,
     load_key_from_material,
     redact_jws_signature,
     sign_token,
-    verify_token_with_key,
     verify_token,
+    verify_token_with_key,
 )
 from jwt_workbench.samples import SUPPORTED_SAMPLE_KINDS, generate_sample
 
@@ -369,6 +370,23 @@ def test_eddsa_sign_verify_and_jwk() -> None:
     jwk = jwk_from_pem(public_pem, kid="ed1")
     assert jwk["kty"] == "OKP"
     assert jwk["kid"] == "ed1"
+
+
+def test_rfc7638_thumbprint_example() -> None:
+    # RFC 7638 Appendix A.1 (RSA) example thumbprint.
+    jwk = {
+        "kty": "RSA",
+        "n": (
+            "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86z"
+            "wu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsG"
+            "Y4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAt"
+            "aSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFT"
+            "WhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-"
+            "kEgU8awapJzKnqDKgw"
+        ),
+        "e": "AQAB",
+    }
+    assert jwk_thumbprint_sha256(jwk) == "NzbLsXh8uDCcd-6MNwXF4W_7noWXFZAfHkxZsRGC9Xs"
 
 
 def test_refuses_algorithm_kty_mismatch_for_jwk(tmp_path: Path) -> None:
@@ -754,6 +772,8 @@ def test_jwks_cache_file(tmp_path: Path) -> None:
     assert header["alg"] == "RS256"
     assert verified["sub"] == "cache-user"
     assert cache_path.exists()
+    assert not any(path.suffix == ".tmp" for path in cache_path.parent.iterdir())
+    assert (cache_path.stat().st_mode & 0o777) == 0o600
 
     header, verified = verify_token(
         token=token,
@@ -820,6 +840,8 @@ def test_jwks_url_fetch_and_cache_fallback(tmp_path: Path) -> None:
         assert header["alg"] == "RS256"
         assert verified["sub"] == "url-user"
         assert cache_path.exists()
+        assert not any(path.suffix == ".tmp" for path in cache_path.parent.iterdir())
+        assert (cache_path.stat().st_mode & 0o777) == 0o600
     finally:
         server.shutdown()
         server.server_close()
