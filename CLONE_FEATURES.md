@@ -14,6 +14,8 @@
 - [ ] P3: Add an explicit "no-network" mode toggle in web UI that disables any future network-required helpers (defense-in-depth UX). [impact=2 effort=2 fit=3 diff=1 risk=1 conf=3]
 
 ## Implemented
+- [x] 2026-02-09: CI: add `workflow_dispatch` trigger so CI can be manually re-run during transient GitHub outages.
+  Evidence: `.github/workflows/ci.yml`.
 - [x] 2026-02-09: Publish a minimal JSON schema for web API responses and validate it in tests to prevent accidental breaking changes.
   Evidence: `schemas/web_api_responses.schema.json`, `tests/test_web_api_schema.py`, `requirements-dev.txt`.
 - [x] 2026-02-09: Add warning output for risky JWT headers that can imply network key fetching or special processing in other stacks (`jku`, `x5u`, `crit`).

@@ -33,6 +33,7 @@ This file captures evolving, structured decisions and evidence for `jwt-workbenc
 
 ## Recent Decisions
 
+- 2026-02-09 | Add `workflow_dispatch` trigger to CI | Enables manual CI reruns when GitHub push-triggered runs get stuck/cancelled due to transient platform issues | `.github/workflows/ci.yml` | `2af6d77` | Medium | trusted
 - 2026-02-09 | Publish a minimal web API response JSON schema and validate it in tests | Creates a lightweight contract to prevent accidental API response churn as the tool evolves | `schemas/web_api_responses.schema.json`, `tests/test_web_api_schema.py`, `requirements-dev.txt` | `f5a43a3` | High | trusted
 - 2026-02-09 | Add claim-analysis warnings for risky JWT headers (`jku`, `x5u`, `crit`) | Reduce confusion when debugging tokens that could trigger network key fetching or require special verifier behavior in other stacks | `src/jwt_workbench/core.py`, `tests/test_jwt_core.py` | `c0eda61` | High | trusted
 - 2026-02-09 | Add CLI `--output json|text` modes (without changing defaults) + `sign --output json` | Improves terminal ergonomics while preserving backwards-compatible defaults for existing scripts | `src/jwt_workbench/cli.py`, `tests/test_smoke.py`, `README.md` | `8ee5aa0` | High | trusted
@@ -58,6 +59,7 @@ This file captures evolving, structured decisions and evidence for `jwt-workbenc
 ## Verification Evidence
 
 - 2026-02-09 | `make check` | pass
+- 2026-02-09 | `gh run list --branch main --limit 5` | observed transient GitHub push CI cancellations; manual `workflow_dispatch` now available
 - 2026-02-09 | `./.venv/bin/python -m jwt_workbench sample --kind hs256 --output text` | pass (prints token)
 - 2026-02-09 | `./.venv/bin/python -m jwt_workbench decode --token <token> --output text` | pass (prints compact payload)
 - 2026-02-09 | `./.venv/bin/python -m jwt_workbench sign --alg none --payload '{"sub":"x","exp":2000000000}' --output json` | pass (prints JSON bundle)
