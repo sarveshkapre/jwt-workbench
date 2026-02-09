@@ -7,11 +7,15 @@
 - Gaps found during codebase exploration
 
 ## Candidate Features To Do
+- [ ] P1 (Selected): Fix `--at` custom time validation to handle non-integer claim types (`exp`/`nbf`/`iat`) without leaking Python `TypeError`; add regression tests.
+- [ ] P1 (Selected): Add key fingerprints (RFC 7638 JWK thumbprint) in CLI + web verify responses (public material only) to help users confirm they pasted the expected key.
+- [ ] P2 (Selected): Add a `validate` command (decode + warnings + optional policy checks) that exits non-zero on problems (CI-friendly; does not verify signature).
+- [ ] P2 (Selected): Make JWKS cache writes atomic and permission-hardened to avoid partial files and reduce accidental exposure risk.
 - [ ] P3: Publish a minimal JSON schema for web API responses and lock it in tests to prevent accidental breaking changes.
 - [ ] P3: Add import/export support for saved offline workbench sessions (never persist private keys by default; explicit opt-in only).
-- [ ] P3: Add a `validate` / `lint` command that runs decode + warnings + optional policy checks and exits non-zero on problems (CI-friendly).
 - [ ] P3: Add `--output text|json` for CLI commands (default JSON) for quicker terminal use.
-- [ ] P3: Add key fingerprints in CLI/web (public material only) to help users confirm they pasted the expected key.
+- [ ] P3: Add an opt-in OIDC discovery helper to resolve `jwks_uri` from an issuer (`/.well-known/openid-configuration`) for faster verify setup.
+- [ ] P3: Add warning output for risky JWT headers that can imply network key fetching in other stacks (`jku`, `x5u`, `crit`) to reduce surprise during debugging.
 
 ## Implemented
 - [x] 2026-02-09: Fix `iat` verification error messaging (distinguish future `iat` vs `nbf` and surface integer-claim errors).
@@ -55,18 +59,20 @@
 - Centralizing sample/key preset generation prevents behavior drift across CLI and web features.
 - JWK/JWKS key-type enforcement (`kty` vs `alg`) prevents accidental key confusion when users paste the wrong material.
 - Policy profiles are most useful when opt-in and client-side in the web UI (no API schema churn), while CLI can apply them server-side safely.
-- Market scan (bounded): jwt.io debugger sets baseline UX expectations: decode + encode in one page, copy/clear, and optional signature verification with JSON/claims-table views. https://www.jwt.io/
-- Market scan (bounded): Burp's `jwt-editor` indicates "advanced" competitor territory (JWE encrypt/decrypt + attack automation) that jwt-workbench should not copy, but it highlights that safe key handling and explicit algorithm controls are core. https://github.com/PortSwigger/jwt-editor
-- Market scan (bounded): `jwt_tool` is explicitly a pentesting toolkit (attacks, fuzzing, dictionary cracking); jwt-workbench should remain a developer-safe offline tool but can borrow defensive UX (clear warnings for alg=none, HS secrets, aud/iss). https://github.com/ticarpi/jwt_tool
-- Market scan (bounded): Common JWT ecosystems support a wider set of JWS algs beyond HS256/RS256/ES256, notably HS384/HS512, RS384/RS512, ES384/ES512, and PS256/PS384/PS512. https://jwtauditor.com/docs/reference/jwt-algorithms.html
+- Market scan (bounded): jwt.io sets the baseline single-page debugger UX (encode/decode side-by-side, copy/clear, optional signature verification). https://jwt.io/
+- Market scan (bounded): OIDC issuers commonly publish `jwks_uri` via discovery (`/.well-known/openid-configuration`) which tools often support to reduce setup friction. https://openid.net/specs/openid-connect-discovery-1_0.html
+- Market scan (bounded): Developer docs commonly describe JWKS + rotation workflows and emphasize `kid` selection as the stable way to pick keys. https://auth0.com/docs/secure/tokens/json-web-tokens/json-web-key-sets
+- Market scan (bounded): RFC 7638 defines a standard JWK thumbprint (SHA-256) for computing stable key fingerprints from public JWK fields. https://www.rfc-editor.org/rfc/rfc7638
 
 ## Gap Map (Against Comparable Tools)
 
 - Missing:
-  - Web UI safe export with claim masking for bug reports (jwt.io has copy helpers but not "safe bundle" semantics).
-  - Wider algorithm dropdown coverage (HS/RS/ES variants, PS*).
+  - CLI `validate` / lint mode for CI-friendly claim hygiene checks (without requiring signature keys).
+  - Key fingerprint visibility (public-only) to reduce “did I paste the right key?” confusion.
+  - OIDC discovery helper to auto-resolve `jwks_uri` from an issuer (opt-in network).
+  - Import/export saved sessions for offline workflows (safe defaults: never persist private keys).
 - Weak:
-  - "Claims table" rendering and human-time display for time claims (jwt.io parity).
+  - CLI ergonomics for terminal use (optional text output, compact views).
 - Parity:
   - Decode/verify/sign basics; JWKS key selection; copy/clear UX.
 - Differentiators:
