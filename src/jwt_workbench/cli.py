@@ -20,6 +20,7 @@ from .core import (
     verify_token,
 )
 from .samples import generate_sample
+from .version import __version__
 from .web import serve
 
 
@@ -283,7 +284,7 @@ def _cmd_serve(args: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="jwt-workbench")
-    parser.add_argument("--version", action="version", version="0.1.0")
+    parser.add_argument("--version", action="version", version=__version__)
 
     sub = parser.add_subparsers(dest="cmd", required=True)
 
