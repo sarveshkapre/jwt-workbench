@@ -625,14 +625,18 @@ def analyze_claims(
     jku = header.get("jku")
     if isinstance(jku, str):
         if jku.strip():
-            warnings.append("token header contains jku (some stacks may fetch keys over the network)")
+            warnings.append(
+                "token header contains jku (some stacks may fetch keys over the network)"
+            )
     elif jku is not None:
         warnings.append("token header contains jku (some stacks may fetch keys over the network)")
 
     x5u = header.get("x5u")
     if isinstance(x5u, str):
         if x5u.strip():
-            warnings.append("token header contains x5u (some stacks may fetch certs over the network)")
+            warnings.append(
+                "token header contains x5u (some stacks may fetch certs over the network)"
+            )
     elif x5u is not None:
         warnings.append("token header contains x5u (some stacks may fetch certs over the network)")
 

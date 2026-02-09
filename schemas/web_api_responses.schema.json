@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jwt-workbench.invalid/schemas/web_api_responses.schema.json",
+  "title": "JWT Workbench Web API Responses",
+  "type": "object",
+  "additionalProperties": true,
+  "$defs": {
+    "JwtHeader": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "JwtPayload": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "Warnings": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "ErrorResponse": {
+      "type": "object",
+      "required": ["error"],
+      "properties": {
+        "error": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "DecodeResponse": {
+      "type": "object",
+      "required": ["header", "payload", "warnings"],
+      "properties": {
+        "header": { "$ref": "#/$defs/JwtHeader" },
+        "payload": { "$ref": "#/$defs/JwtPayload" },
+        "warnings": { "$ref": "#/$defs/Warnings" }
+      },
+      "additionalProperties": false
+    },
+    "VerifyResponse": {
+      "type": "object",
+      "required": ["header", "payload", "warnings"],
+      "properties": {
+        "header": { "$ref": "#/$defs/JwtHeader" },
+        "payload": { "$ref": "#/$defs/JwtPayload" },
+        "warnings": { "$ref": "#/$defs/Warnings" },
+        "key_thumbprint_sha256": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "SignResponse": {
+      "type": "object",
+      "required": ["token", "warnings"],
+      "properties": {
+        "token": { "type": "string" },
+        "warnings": { "$ref": "#/$defs/Warnings" }
+      },
+      "additionalProperties": false
+    },
+    "ExportResponse": {
+      "type": "object",
+      "required": ["token_redacted", "header", "payload", "warnings", "notes"],
+      "properties": {
+        "token_redacted": { "type": "string" },
+        "header": { "$ref": "#/$defs/JwtHeader" },
+        "payload": { "$ref": "#/$defs/JwtPayload" },
+        "warnings": { "$ref": "#/$defs/Warnings" },
+        "notes": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "JwkResponse": {
+      "type": "object",
+      "required": ["jwk"],
+      "properties": {
+        "jwk": { "type": "object", "additionalProperties": true }
+      },
+      "additionalProperties": false
+    },
+    "JwksResponse": {
+      "type": "object",
+      "required": ["jwks"],
+      "properties": {
+        "jwks": {
+          "type": "object",
+          "required": ["keys"],
+          "properties": {
+            "keys": { "type": "array", "items": { "type": "object" } }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "KeyPresetResponse": {
+      "type": "object",
+      "required": ["key_type", "key_text"],
+      "properties": {
+        "key_type": { "type": "string" },
+        "key_text": { "type": "string" },
+        "alg": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "SampleResponse": {
+      "type": "object",
+      "required": ["token", "header", "payload", "warnings", "alg", "key_type", "key_text", "require"],
+      "properties": {
+        "token": { "type": "string" },
+        "header": { "$ref": "#/$defs/JwtHeader" },
+        "payload": { "$ref": "#/$defs/JwtPayload" },
+        "warnings": { "$ref": "#/$defs/Warnings" },
+        "alg": { "type": "string" },
+        "key_type": { "type": "string" },
+        "key_text": { "type": "string" },
+        "kid": { "type": "string" },
+        "aud": {},
+        "iss": {},
+        "leeway": { "type": "integer" },
+        "require": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}
+

@@ -1,3 +1,5 @@
 mypy==1.14.1
 pytest==8.3.4
+jsonschema==4.26.0
+types-jsonschema==4.26.0.20260202
 ruff==0.9.6

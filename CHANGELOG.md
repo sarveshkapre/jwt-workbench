@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Web API: publish a minimal JSON schema for API responses and validate it in tests to prevent accidental breaking changes.
 - Claim warnings: add footgun warnings for risky JWT headers (`jku`, `x5u`, `crit`) that can imply network fetching or special processing in other stacks.
 - CLI: add `validate` to run decode + claim hygiene checks and exit non-zero on issues (CI-friendly; no signature verification).
 - Verify: include an optional `key_thumbprint_sha256` (RFC 7638 JWK thumbprint) for non-HS key inputs to help confirm key selection.
