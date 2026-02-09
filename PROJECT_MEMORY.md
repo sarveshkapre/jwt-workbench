@@ -34,6 +34,9 @@ This file captures evolving, structured decisions and evidence for `jwt-workbenc
 ## Recent Decisions
 
 - 2026-02-09 | Fix verification error messaging for time-claim failures (`iat` vs `nbf`, and integer-claim errors) | Reduce debugging time and prevent misleading messages when PyJWT raises shared exception types | `src/jwt_workbench/core.py`, `tests/test_jwt_core.py` | `c2f1751` | High | trusted
+- 2026-02-09 | Add `validate` command for CI-friendly claim hygiene checks (no signature verification) | Provide a fast, offline lint mode that can gate builds without requiring private key material | `src/jwt_workbench/cli.py`, `tests/test_smoke.py`, `README.md` | `4364bc6` | High | trusted
+- 2026-02-09 | Add key fingerprints via RFC 7638 JWK thumbprint (non-HS only) | Reduce key-paste confusion and make "did I use the right key?" debugging deterministic without exposing secret material | `src/jwt_workbench/core.py`, `src/jwt_workbench/cli.py`, `src/jwt_workbench/web.py`, `tests/test_jwt_core.py`, `tests/test_web_api.py` | `4364bc6` | High | trusted
+- 2026-02-09 | Atomic + permission-hardened JWKS cache writes (best-effort) | Avoid partial cache files and reduce accidental exposure risk from overly-permissive cache permissions | `src/jwt_workbench/core.py`, `tests/test_jwt_core.py` | `4364bc6` | Medium | trusted
 - 2026-02-09 | Add verify-time override (`--at`) in CLI + web verify API/UI | Enable reproducible debugging of exp/nbf/iat behavior without changing system clocks; keep default behavior unchanged when omitted | `src/jwt_workbench/core.py`, `src/jwt_workbench/cli.py`, `src/jwt_workbench/web.py`, `tests/test_jwt_core.py`, `tests/test_web_api.py` | `212a3c0` | High | trusted
 - 2026-02-09 | Make decode mode non-validating for time/aud/iss claims | "Decode" should parse JWTs even when expired/not-yet-valid so users can inspect and rely on warnings instead of hard failures | `src/jwt_workbench/core.py`, `tests/test_jwt_core.py` | `212a3c0` | High | trusted
 - 2026-02-09 | Add `--jwks-url` fetch with safe cache fallback | Support common OIDC JWKS endpoint workflows while staying offline-first via explicit caching | `src/jwt_workbench/core.py`, `src/jwt_workbench/cli.py`, `tests/test_jwt_core.py` | `7311c86` | Medium | trusted
@@ -47,10 +50,14 @@ This file captures evolving, structured decisions and evidence for `jwt-workbenc
 
 - 2026-02-09 | Release check regex bug | Root cause: double-escaped regex tokens in a raw string (`\\s`, `\\b`) so the changelog check never matched. Fix: use `\s`/`\b` in the pattern and keep a quick sanity run in `make check`. Prevention: avoid double-escaping in raw regex strings; add a minimal unit-like assertion in scripts when possible. | `scripts/release_check.py` | trusted
 - 2026-02-09 | Sample kind regression during refactor | Root cause: `rs256-pem` briefly dropped from the RSA sample-kind branch while expanding variants. Fix: include `rs256-pem` in the RSA path and rely on `make check` to catch breakage. Prevention: add a targeted test ensuring every `SUPPORTED_SAMPLE_KINDS` kind is runnable. | `src/jwt_workbench/samples.py` | trusted
+- 2026-02-09 | Web `/api/verify` 500 on PEM private keys | Root cause: verification path passed PEM private keys through to PyJWT/cryptography, which expects a verify-capable public key object; private keys can lack `verify()`. Fix: derive and use the public key for PEM verification (CLI + web) and add regression coverage. Prevention: treat PEM input as "public for verify, private for sign" in loaders; keep an integration test that verifies a token using the sample PEM key material. | `src/jwt_workbench/core.py`, `src/jwt_workbench/web.py`, `tests/test_web_api.py` | trusted
 
 ## Verification Evidence
 
 - 2026-02-09 | `make check` | pass
+- 2026-02-09 | `./.venv/bin/jwt-workbench validate --token <hs256-sample-token>` | pass (exit 0; `ok=true`)
+- 2026-02-09 | `./.venv/bin/jwt-workbench validate --token <hs256-sample-token> --aud wrong` | pass (exit 2; `ok=false` with aud mismatch warning)
+- 2026-02-09 | `./.venv/bin/jwt-workbench verify --alg RS256 --key-text -` (stdin: public PEM) | pass (JSON output includes `key_thumbprint_sha256`)
 - 2026-02-09 | `./.venv/bin/jwt-workbench verify --alg HS256 --at <exp+1>` | pass (exits 2 with `error: token is expired`)
 - 2026-02-09 | `./.venv/bin/jwt-workbench verify --alg HS256 --at <exp-1>` | pass
 - 2026-02-09 | `./.venv/bin/jwt-workbench verify --alg RS256 --jwks-url http://127.0.0.1:<port>/jwks --jwks-cache <path> --kid <kid>` | pass (fetch + cache + offline fallback)

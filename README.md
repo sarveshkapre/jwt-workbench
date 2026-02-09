@@ -40,6 +40,12 @@ Inspect (decode + warnings):
 jwt-workbench inspect --token "$JWT"
 ```
 
+Validate (decode + claim hygiene checks; no signature verification; exits non-zero on issues):
+
+```bash
+jwt-workbench validate --token "$JWT" --policy strict
+```
+
 Generate a local sample (token + key material):
 
 ```bash
@@ -87,6 +93,8 @@ Verify with multiple issuers:
 ```bash
 jwt-workbench verify --token "$JWT" --key-text "secret123" --iss "iss-1" --iss "iss-2"
 ```
+
+Verify output includes an optional `key_thumbprint_sha256` field (RFC 7638 JWK thumbprint) for non-HS keys to help confirm you're using the expected key.
 
 Verify with a JWKS cache file:
 

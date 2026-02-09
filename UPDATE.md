@@ -7,6 +7,8 @@
 - Expanded algorithm coverage across CLI + web UI to include HS/RS/PS/ES variants (with curve-appropriate EC presets for ES384/ES512).
 - Added verification policy profiles (`legacy`, `default`, `strict`) as quick presets (CLI `--policy`, web UI picker).
 - Added `export` command to emit a copy-safe JSON bundle with signature-redacted token for bug-report sharing.
+- Added `validate` command to run decode + claim hygiene checks and exit non-zero on issues (CI-friendly; no signature verification).
+- Verify output includes an optional `key_thumbprint_sha256` (RFC 7638 JWK thumbprint) for non-HS keys to confirm key selection.
 - Web UI adds a safe export generator (signature redaction + optional claim masking + one-click copy) for safer bug-report sharing.
 - Web server adds CSP + anti-embed security headers.
 - Added `make release-check` to validate changelog/version sync and require pinned deps.

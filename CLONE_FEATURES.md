@@ -7,10 +7,6 @@
 - Gaps found during codebase exploration
 
 ## Candidate Features To Do
-- [ ] P1 (Selected): Fix `--at` custom time validation to handle non-integer claim types (`exp`/`nbf`/`iat`) without leaking Python `TypeError`; add regression tests.
-- [ ] P1 (Selected): Add key fingerprints (RFC 7638 JWK thumbprint) in CLI + web verify responses (public material only) to help users confirm they pasted the expected key.
-- [ ] P2 (Selected): Add a `validate` command (decode + warnings + optional policy checks) that exits non-zero on problems (CI-friendly; does not verify signature).
-- [ ] P2 (Selected): Make JWKS cache writes atomic and permission-hardened to avoid partial files and reduce accidental exposure risk.
 - [ ] P3: Publish a minimal JSON schema for web API responses and lock it in tests to prevent accidental breaking changes.
 - [ ] P3: Add import/export support for saved offline workbench sessions (never persist private keys by default; explicit opt-in only).
 - [ ] P3: Add `--output text|json` for CLI commands (default JSON) for quicker terminal use.
@@ -18,6 +14,14 @@
 - [ ] P3: Add warning output for risky JWT headers that can imply network key fetching in other stacks (`jku`, `x5u`, `crit`) to reduce surprise during debugging.
 
 ## Implemented
+- [x] 2026-02-09: Fix `--at` custom time validation to handle null/non-integer claim types without leaking Python `TypeError`.
+  Evidence: `src/jwt_workbench/core.py`, `tests/test_jwt_core.py`.
+- [x] 2026-02-09: Add key fingerprints (RFC 7638 JWK thumbprint) for non-HS keys in CLI + web verify responses to confirm expected key selection.
+  Evidence: `src/jwt_workbench/core.py`, `src/jwt_workbench/cli.py`, `src/jwt_workbench/web.py`, `tests/test_jwt_core.py`, `tests/test_smoke.py`, `tests/test_web_api.py`, `README.md`.
+- [x] 2026-02-09: Add `validate` command (decode + claim hygiene checks) that exits non-zero on issues (CI-friendly; no signature verification).
+  Evidence: `src/jwt_workbench/cli.py`, `tests/test_smoke.py`, `README.md`.
+- [x] 2026-02-09: Make JWKS cache writes atomic and permission-hardened (best-effort) to avoid partial files.
+  Evidence: `src/jwt_workbench/core.py`, `tests/test_jwt_core.py`.
 - [x] 2026-02-09: Fix `iat` verification error messaging (distinguish future `iat` vs `nbf` and surface integer-claim errors).
   Evidence: `src/jwt_workbench/core.py`, `tests/test_jwt_core.py`.
 - [x] 2026-02-09: Verify-time override for debugging (`--at` in CLI + web advanced option) without mutating system clock.
