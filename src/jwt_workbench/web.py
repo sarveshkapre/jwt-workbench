@@ -191,6 +191,22 @@ _INDEX_HTML = """
           spellcheck="false"
           autocapitalize="off"
         ></textarea>
+        <div id="claimsWrap" class="claims" hidden>
+          <div class="output-header">
+            <label>Claims</label>
+            <span id="claimsNow" class="meta"></span>
+          </div>
+          <table class="claims-table" aria-label="Claims table">
+            <thead>
+              <tr>
+                <th>Claim</th>
+                <th>Value</th>
+                <th>Human</th>
+              </tr>
+            </thead>
+            <tbody id="claimsBody"></tbody>
+          </table>
+        </div>
         <div class="row">
           <label>Warnings</label>
           <ul id="warnings"></ul>
@@ -312,6 +328,9 @@ const tokenEl = document.getElementById('token');
 const headerEl = document.getElementById('header');
 const payloadEl = document.getElementById('payload');
 const warningsEl = document.getElementById('warnings');
+const claimsWrapEl = document.getElementById('claimsWrap');
+const claimsNowEl = document.getElementById('claimsNow');
+const claimsBodyEl = document.getElementById('claimsBody');
 const statusEl = document.getElementById('status');
 const keyEl = document.getElementById('key');
 const algEl = document.getElementById('alg');
@@ -620,6 +639,82 @@ const setWarnings = (warnings) => {
   });
 };
 
+const formatRelative = (diffSeconds) => {
+  const s = Math.round(Math.abs(diffSeconds));
+  const sign = diffSeconds >= 0 ? 1 : -1;
+  const units = [
+    ['d', 86400],
+    ['h', 3600],
+    ['m', 60],
+    ['s', 1],
+  ];
+  for (const [label, scale] of units) {
+    if (s >= scale) {
+      const n = Math.floor(s / scale);
+      const text = `${n}${label}`;
+      return sign >= 0 ? `in ${text}` : `${text} ago`;
+    }
+  }
+  return sign >= 0 ? 'in 0s' : '0s ago';
+};
+
+const formatUnixClaim = (value) => {
+  const n = Number.parseInt(String(value), 10);
+  if (!Number.isFinite(n)) {
+    return null;
+  }
+  const iso = new Date(n * 1000).toISOString();
+  const nowSec = Math.floor(Date.now() / 1000);
+  const rel = formatRelative(n - nowSec);
+  return { iso, rel };
+};
+
+const updateClaimsTable = (payload) => {
+  claimsBodyEl.innerHTML = '';
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
+    claimsWrapEl.hidden = true;
+    claimsNowEl.textContent = '';
+    return;
+  }
+
+  const keys = Object.keys(payload).sort();
+  if (keys.length === 0) {
+    claimsWrapEl.hidden = true;
+    claimsNowEl.textContent = '';
+    return;
+  }
+
+  claimsNowEl.textContent = `now: ${new Date().toISOString()}`;
+
+  keys.forEach((key) => {
+    const raw = payload[key];
+    const tr = document.createElement('tr');
+
+    const tdKey = document.createElement('td');
+    tdKey.textContent = key;
+
+    const tdVal = document.createElement('td');
+    tdVal.className = 'value';
+    tdVal.textContent = typeof raw === 'string' ? raw : JSON.stringify(raw);
+
+    const tdHuman = document.createElement('td');
+    tdHuman.className = 'human';
+    if (key === 'exp' || key === 'nbf' || key === 'iat') {
+      const parsed = formatUnixClaim(raw);
+      tdHuman.textContent = parsed ? `${parsed.iso} (${parsed.rel})` : '';
+    } else {
+      tdHuman.textContent = '';
+    }
+
+    tr.appendChild(tdKey);
+    tr.appendChild(tdVal);
+    tr.appendChild(tdHuman);
+    claimsBodyEl.appendChild(tr);
+  });
+
+  claimsWrapEl.hidden = false;
+};
+
 const parseJsonObject = (value, label) => {
   if (!value.trim()) {
     return null;
@@ -743,6 +838,7 @@ const decode = async () => {
   const data = await request('/api/decode', { token });
   headerEl.value = JSON.stringify(data.header, null, 2);
   payloadEl.value = JSON.stringify(data.payload, null, 2);
+  updateClaimsTable(data.payload);
   setWarnings(data.warnings || []);
   setStatus('Decoded', 'ok');
 };
@@ -784,6 +880,7 @@ const verify = async () => {
   });
   headerEl.value = JSON.stringify(data.header, null, 2);
   payloadEl.value = JSON.stringify(data.payload, null, 2);
+  updateClaimsTable(data.payload);
   setWarnings(data.warnings || []);
   setStatus('Verified', 'ok');
 };
@@ -999,6 +1096,7 @@ clearAllEl.addEventListener('click', async () => {
     requireClaimsEl.value = '';
     maskClaimsEl.value = '';
     exportOutEl.value = '';
+    updateClaimsTable(null);
     setWarnings([]);
     setStatus('Cleared', 'ok');
     updateKeyUi();
@@ -1020,6 +1118,7 @@ loadSampleEl.addEventListener('click', async () => {
     tokenEl.value = data.token || '';
     headerEl.value = JSON.stringify(data.header || {}, null, 2);
     payloadEl.value = JSON.stringify(data.payload || {}, null, 2);
+    updateClaimsTable(data.payload || null);
 
     if (data.alg) {
       algEl.value = data.alg;
@@ -1242,8 +1341,23 @@ formatHeaderEl.addEventListener('click', async () => {
 formatPayloadEl.addEventListener('click', async () => {
   await runAction(async () => {
     formatJsonTextarea(payloadEl, 'Payload');
+    try {
+      const obj = parseJsonObject(payloadEl.value, 'Payload');
+      updateClaimsTable(obj);
+    } catch (_err) {
+      updateClaimsTable(null);
+    }
     setStatus('Formatted payload', 'ok');
   });
+});
+
+payloadEl.addEventListener('input', () => {
+  try {
+    const obj = parseJsonObject(payloadEl.value, 'Payload');
+    updateClaimsTable(obj);
+  } catch (_err) {
+    updateClaimsTable(null);
+  }
 });
 
 formatKeyEl.addEventListener('click', async () => {
@@ -1447,6 +1561,45 @@ textarea {
 .output-header .meta {
   font-size: 0.8rem;
   color: var(--muted);
+}
+
+.claims {
+  margin-top: 6px;
+}
+
+.claims-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 6px;
+}
+
+.claims-table th,
+.claims-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--ghost-border);
+  vertical-align: top;
+}
+
+.claims-table th {
+  text-align: left;
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+
+.claims-table td {
+  text-align: left;
+  font-size: 0.9rem;
+}
+
+.claims-table td.value {
+  word-break: break-word;
+}
+
+.claims-table td.human {
+  color: var(--muted);
+  white-space: nowrap;
 }
 
 .status {
