@@ -11,6 +11,7 @@ from cryptography.hazmat.primitives.asymmetric import ec, ed25519, rsa
 
 from jwt_workbench.core import (
     decode_token,
+    format_jwt_error,
     jwk_from_pem,
     jwks_from_pem,
     load_key_from_material,
@@ -131,6 +132,33 @@ def test_hs256_sign_verify_decode() -> None:
     )
     assert header["alg"] == "HS256"
     assert verified["sub"] == "user123"
+
+
+def test_format_jwt_error_iat_nbf_and_time_claim_integer_errors() -> None:
+    assert (
+        format_jwt_error(jwt_exceptions.ImmatureSignatureError("The token is not yet valid (iat)"))
+        == "iat is in the future"
+    )
+    assert (
+        format_jwt_error(jwt_exceptions.ImmatureSignatureError("The token is not yet valid (nbf)"))
+        == "token is not valid yet (nbf in the future)"
+    )
+    assert (
+        format_jwt_error(
+            jwt_exceptions.InvalidIssuedAtError("Issued At claim (iat) must be an integer.")
+        )
+        == "iat claim is not an integer"
+    )
+    assert (
+        format_jwt_error(
+            jwt_exceptions.DecodeError("Expiration Time claim (exp) must be an integer.")
+        )
+        == "exp claim is not an integer"
+    )
+    assert (
+        format_jwt_error(jwt_exceptions.DecodeError("Not Before claim (nbf) must be an integer."))
+        == "nbf claim is not an integer"
+    )
 
 
 @pytest.mark.parametrize("alg", ["HS384", "HS512"])

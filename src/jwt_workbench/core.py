@@ -492,9 +492,12 @@ def format_jwt_error(
     if isinstance(exc, jwt_exceptions.ExpiredSignatureError):
         return "token is expired"
     if isinstance(exc, jwt_exceptions.ImmatureSignatureError):
+        msg = str(exc).lower()
+        if "iat" in msg:
+            return "iat is in the future"
         return "token is not valid yet (nbf in the future)"
     if isinstance(exc, jwt_exceptions.InvalidIssuedAtError):
-        return "iat is in the future"
+        return "iat claim is not an integer"
     if isinstance(exc, jwt_exceptions.InvalidAudienceError):
         return _format_allowlist("aud", audience)
     if isinstance(exc, jwt_exceptions.InvalidIssuerError):
@@ -507,5 +510,10 @@ def format_jwt_error(
     if isinstance(exc, jwt_exceptions.InvalidSignatureError):
         return "signature verification failed"
     if isinstance(exc, jwt_exceptions.DecodeError):
+        msg = str(exc).lower()
+        if "expiration time claim" in msg or "(exp)" in msg:
+            return "exp claim is not an integer"
+        if "not before claim" in msg or "(nbf)" in msg:
+            return "nbf claim is not an integer"
         return "invalid token format"
     return str(exc)
