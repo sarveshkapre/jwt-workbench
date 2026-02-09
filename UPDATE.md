@@ -4,8 +4,12 @@
 
 - Added ES256 + EdDSA support for sign/verify across CLI + web, including safe key parsing for PEM/JWK/JWKS.
 - Web UI adds EC/OKP key presets and JWK/JWKS templates for faster ES256/EdDSA workflows.
+- Expanded algorithm coverage across CLI + web UI to include HS/RS/PS/ES variants (with curve-appropriate EC presets for ES384/ES512).
 - Added verification policy profiles (`legacy`, `default`, `strict`) as quick presets (CLI `--policy`, web UI picker).
 - Added `export` command to emit a copy-safe JSON bundle with signature-redacted token for bug-report sharing.
+- Web UI adds a safe export generator (signature redaction + optional claim masking + one-click copy) for safer bug-report sharing.
+- Web server adds CSP + anti-embed security headers.
+- Added `make release-check` to validate changelog/version sync and require pinned deps.
 
 ### How to verify
 
@@ -13,6 +17,8 @@
 make check
 jwt-workbench sample --kind es256-pem
 jwt-workbench sample --kind eddsa-pem
+jwt-workbench sample --kind es384-pem
+jwt-workbench sample --kind ps256-pem
 jwt-workbench export --token "$(jwt-workbench sample --kind none | python -c 'import json,sys; print(json.load(sys.stdin)[\"token\"])')"
 jwt-workbench verify --policy strict --token "$(jwt-workbench sample --kind hs256 | python -c 'import json,sys; print(json.load(sys.stdin)[\"token\"])')" --key-text "demo-secret-please-change"
 jwt-workbench serve --port 8000
@@ -21,7 +27,9 @@ jwt-workbench serve --port 8000
 Then open `http://127.0.0.1:8000` and try:
 
 - Algorithm: `ES256` and `EdDSA` in the dropdown, then Sign/Verify using the new presets/templates.
+- Algorithm variants: try `HS512`, `PS256`, `ES384`, `ES512` with the matching presets.
 - Policy profile picker: choose `default` or `strict` and verify required-claim behavior.
+- Safe export: set `Mask claims` and click `Safe export` to copy a redacted, masked JSON bundle.
 
 ## 2026-02-08
 

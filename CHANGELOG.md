@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Web UI: add safe export generator (signature redaction + optional claim masking + one-click copy) for safer bug-report sharing.
+- Web API: add `/api/export` and enforce clearer key-type requirements for HS vs non-HS algorithms to prevent key confusion.
+- Algorithms: expand supported alg dropdown/presets to include HS384/HS512, RS384/RS512, PS256/PS384/PS512, ES384/ES512 (CLI/web + samples + tests).
+- Web: add CSP + anti-embed security headers for the local UI.
+- Release: add `make release-check` to validate changelog/version sync and require pinned dependencies.
 - Algorithms: add ES256 + EdDSA support for sign/verify across CLI + web, including JWK/JWKS parsing and PEM → JWK conversion for EC/OKP keys.
 - Verification: add policy profiles (`legacy`, `default`, `strict`) as presets (CLI `--policy`, web UI picker).
 - CLI: add `export` command to emit a copy-safe JSON bundle with signature-redacted token for bug-report sharing.

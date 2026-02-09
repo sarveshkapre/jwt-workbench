@@ -7,10 +7,6 @@
 - Gaps found during codebase exploration
 
 ## Candidate Features To Do
-- [ ] P1 (selected): Web UI safe export/redaction helper for bug reports: signature redaction + payload claim masking + one-click copy (never include key material).
-- [ ] P1 (selected): Expand Web UI algorithm surface area beyond defaults (HS384/HS512, RS384/RS512, PS256/PS384/PS512, ES384/ES512) with curve-appropriate key presets and tests to prevent key-type confusion.
-- [ ] P1 (selected): Release/version hygiene: single-source CLI `--version` + automated checks for changelog/version sync (and basic dependency pin drift guard).
-- [ ] P2 (selected): Web server hardening: add CSP + clickjacking defense headers and extend integration tests.
 - [ ] P2: Add optional `--jwks-url` fetch + cache for common OIDC/JWKS workflows (explicit opt-in; still works offline via cache).
 - [ ] P3: Web UI parity: add a "Claims table" view (like jwt.io) with human-time rendering for `exp`/`nbf`/`iat`.
 - [ ] P3: Add verify-time override for debugging (`--at` / web advanced option) without mutating system clock.
@@ -18,6 +14,14 @@
 - [ ] P3: Publish a minimal JSON schema for API responses and lock it in tests to prevent accidental breaking changes.
 
 ## Implemented
+- [x] 2026-02-09: Web UI safe export helper: signature redaction + optional payload claim masking + one-click copy (never includes key material).
+  Evidence: `src/jwt_workbench/web.py`, `tests/test_web_api.py`.
+- [x] 2026-02-09: Expanded algorithm coverage in web UI (HS/RS/PS/ES variants) with curve-appropriate presets and compatibility tests.
+  Evidence: `src/jwt_workbench/web.py`, `src/jwt_workbench/samples.py`, `src/jwt_workbench/cli.py`, `tests/test_jwt_core.py`, `tests/test_web_api.py`, `README.md`.
+- [x] 2026-02-09: Release/version hygiene: CLI `--version` reads package metadata + `make release-check` validates changelog/version sync and pinned deps.
+  Evidence: `src/jwt_workbench/version.py`, `src/jwt_workbench/cli.py`, `scripts/release_check.py`, `Makefile`.
+- [x] 2026-02-09: Web hardening: CSP + anti-embed headers with test coverage.
+  Evidence: `src/jwt_workbench/web.py`, `tests/test_web_api.py`.
 - [x] 2026-02-09: ES256 + EdDSA sign/verify support (CLI + web) with safe key parsing for PEM/JWK/JWKS and compatibility tests.
   Evidence: `src/jwt_workbench/core.py`, `src/jwt_workbench/cli.py`, `src/jwt_workbench/web.py`, `src/jwt_workbench/samples.py`, `tests/test_jwt_core.py`.
 - [x] 2026-02-09: Web UI adds EC/OKP presets + JWK/JWKS templates for ES256/EdDSA to reduce key-format friction.

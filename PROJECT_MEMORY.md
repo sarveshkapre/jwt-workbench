@@ -31,3 +31,21 @@ This file captures evolving, structured decisions and evidence for `jwt-workbenc
 - Confidence: High.
 - Trust label: Local implementation + tests.
 
+## Recent Decisions
+
+- 2026-02-09 | Add CSP + anti-embed headers for the local web UI | Reduce accidental data exfil / embedding risk for a local tool with user-controlled input | `src/jwt_workbench/web.py`, `tests/test_web_api.py` | `d726dff` | High | trusted
+- 2026-02-09 | Add web UI "Safe export" with signature redaction + optional claim masking | Make it safer to share debugging bundles without leaking full tokens or PII | `src/jwt_workbench/web.py`, `tests/test_web_api.py` | `5aa9dca` | High | trusted
+- 2026-02-09 | Expand algorithm coverage (HS/RS/PS/ES variants) with curve-appropriate presets | Meet common JWT ecosystem expectations while preventing key-type confusion and adding compatibility tests | `src/jwt_workbench/web.py`, `src/jwt_workbench/samples.py`, `tests/test_jwt_core.py` | `7e8dadc` | High | trusted
+- 2026-02-09 | Add release/version guardrails (`make release-check`) and make CLI `--version` single-source | Avoid drift between `pyproject.toml`, changelog, and CLI output | `scripts/release_check.py`, `src/jwt_workbench/version.py`, `Makefile` | `87f6dab` | Medium | trusted
+
+## Mistakes And Fixes
+
+- 2026-02-09 | Release check regex bug | Root cause: double-escaped regex tokens in a raw string (`\\s`, `\\b`) so the changelog check never matched. Fix: use `\s`/`\b` in the pattern and keep a quick sanity run in `make check`. Prevention: avoid double-escaping in raw regex strings; add a minimal unit-like assertion in scripts when possible. | `scripts/release_check.py` | trusted
+- 2026-02-09 | Sample kind regression during refactor | Root cause: `rs256-pem` briefly dropped from the RSA sample-kind branch while expanding variants. Fix: include `rs256-pem` in the RSA path and rely on `make check` to catch breakage. Prevention: add a targeted test ensuring every `SUPPORTED_SAMPLE_KINDS` kind is runnable. | `src/jwt_workbench/samples.py` | trusted
+
+## Verification Evidence
+
+- 2026-02-09 | `make check` | pass
+- 2026-02-09 | `./.venv/bin/jwt-workbench serve --port 8123` + `curl http://127.0.0.1:8123/` | pass (HTML served)
+- 2026-02-09 | `curl -X POST http://127.0.0.1:8123/api/sample -H 'Content-Type: application/json' -d '{\"kind\":\"hs512\"}'` | pass (returned `HS512` token with 3 segments)
+- 2026-02-09 | `curl -X POST http://127.0.0.1:8123/api/export -H 'Content-Type: application/json' -d '{\"token\":\"x.y.z\"}'` | pass (returned JSON error `invalid token format`)
