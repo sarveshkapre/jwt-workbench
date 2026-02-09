@@ -19,6 +19,7 @@ from jwt_workbench.core import (
     verify_token_with_key,
     verify_token,
 )
+from jwt_workbench.samples import SUPPORTED_SAMPLE_KINDS, generate_sample
 
 
 def _rsa_keypair() -> tuple[str, str]:
@@ -207,6 +208,18 @@ def test_es512_sign_verify() -> None:
     )
     assert header["alg"] == "ES512"
     assert verified["aud"] == "test"
+
+
+@pytest.mark.parametrize("kind", sorted(SUPPORTED_SAMPLE_KINDS))
+def test_generate_sample_kinds(kind: str) -> None:
+    sample = generate_sample(kind)
+    assert sample["kind"] == kind
+    assert isinstance(sample["token"], str) and sample["token"]
+    assert isinstance(sample["alg"], str) and sample["alg"]
+    assert isinstance(sample["header"], dict)
+    assert isinstance(sample["payload"], dict)
+    # JWS tokens should always have 3 dot-separated segments (including alg=none).
+    assert len(sample["token"].split(".")) == 3
 
 
 def test_rs256_sign_verify_and_jwk() -> None:
