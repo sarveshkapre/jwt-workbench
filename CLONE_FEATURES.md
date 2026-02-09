@@ -71,6 +71,8 @@
 - Policy profiles are most useful when opt-in and client-side in the web UI (no API schema churn), while CLI can apply them server-side safely.
 - Publishing a minimal web API schema plus tests acts like a low-overhead contract to prevent accidental response churn as features evolve.
 - Market scan (bounded): jwt.io sets the baseline single-page debugger UX (encode/decode side-by-side, copy/clear, optional signature verification). https://jwt.io/
+- Market scan (bounded): jwt.ms is a widely used “paste a token” viewer (common in Azure/Microsoft ecosystems) with a fast decode-first workflow baseline. https://jwt.ms/
+- Market scan (bounded): token.dev positions as a modern token debugger emphasizing safe copy/share workflows and quick claim inspection. https://token.dev/
 - Market scan (bounded): OIDC issuers commonly publish `jwks_uri` via discovery (`/.well-known/openid-configuration`) which tools often support to reduce setup friction. https://openid.net/specs/openid-connect-discovery-1_0.html
 - Market scan (bounded): Developer docs commonly describe JWKS + rotation workflows and emphasize `kid` selection as the stable way to pick keys. https://auth0.com/docs/secure/tokens/json-web-tokens/json-web-key-sets
 - Market scan (bounded): RFC 7638 defines a standard JWK thumbprint (SHA-256) for computing stable key fingerprints from public JWK fields. https://www.rfc-editor.org/rfc/rfc7638
