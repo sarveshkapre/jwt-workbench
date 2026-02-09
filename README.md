@@ -28,6 +28,12 @@ Decode:
 jwt-workbench decode --token "$JWT"
 ```
 
+Decode (payload-only, compact output):
+
+```bash
+jwt-workbench decode --token "$JWT" --output text
+```
+
 Decode from stdin:
 
 ```bash
@@ -119,6 +125,12 @@ Sign (HS256):
 
 ```bash
 jwt-workbench sign --payload '{"sub":"user123","exp":1735689600}' --key-text "secret123"
+```
+
+Sign (JSON output bundle):
+
+```bash
+jwt-workbench sign --payload '{"sub":"user123","exp":1735689600}' --key-text "secret123" --output json
 ```
 
 Sign with extra headers:

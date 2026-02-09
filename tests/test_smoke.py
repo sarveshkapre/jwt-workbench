@@ -213,6 +213,32 @@ def test_sign_accepts_headers() -> None:
     assert header["foo"] == "bar"
 
 
+def test_sign_output_json_bundle() -> None:
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "jwt_workbench",
+            "sign",
+            "--alg",
+            "none",
+            "--payload",
+            '{"sub":"x","exp":2000000000}',
+            "--output",
+            "json",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0
+    data = json.loads(proc.stdout)
+    assert isinstance(data.get("token"), str)
+    assert isinstance(data.get("header"), dict)
+    assert isinstance(data.get("payload"), dict)
+    assert isinstance(data.get("warnings"), list)
+
+
 def test_verify_required_claim_flag() -> None:
     signed = subprocess.run(
         [

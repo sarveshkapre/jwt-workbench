@@ -63,6 +63,10 @@ def _print_json(obj: object) -> None:
     print(json.dumps(obj, indent=2, sort_keys=True))
 
 
+def _print_json_compact(obj: object) -> None:
+    print(json.dumps(obj, separators=(",", ":"), sort_keys=True))
+
+
 def _load_token(token_arg: str) -> str:
     if token_arg != "-":
         return token_arg
@@ -160,30 +164,42 @@ def _validate_sign_args(args: argparse.Namespace) -> None:
 def _cmd_decode(args: argparse.Namespace) -> int:
     header, payload = decode_token(_load_token(args.token))
     _emit_warnings(payload, header)
-    _print_json({"header": header, "payload": payload})
+    if args.output == "text":
+        _print_json_compact(payload)
+    else:
+        _print_json({"header": header, "payload": payload})
     return 0
 
 
 def _cmd_inspect(args: argparse.Namespace) -> int:
     header, payload = decode_token(_load_token(args.token))
-    if not args.no_warnings:
-        _emit_warnings(payload, header)
-    _print_json({"header": header, "payload": payload, "warnings": analyze_claims(payload, header)})
+    warnings = analyze_claims(payload, header)
+    if args.output == "text":
+        if not args.no_warnings:
+            for w in warnings:
+                print(f"warning: {w}")
+        _print_json_compact(payload)
+    else:
+        if not args.no_warnings:
+            _emit_warning_lines(warnings)
+        _print_json({"header": header, "payload": payload, "warnings": warnings})
     return 0
 
 
 def _cmd_export(args: argparse.Namespace) -> int:
     token = _load_token(args.token)
     header, payload = decode_token(token)
-    _print_json(
-        {
-            "token_redacted": redact_jws_signature(token),
-            "header": header,
-            "payload": payload,
-            "warnings": analyze_claims(payload, header),
-            "notes": "JWT signature replaced with REDACTED for safe sharing",
-        }
-    )
+    exported = {
+        "token_redacted": redact_jws_signature(token),
+        "header": header,
+        "payload": payload,
+        "warnings": analyze_claims(payload, header),
+        "notes": "JWT signature replaced with REDACTED for safe sharing",
+    }
+    if args.output == "text":
+        print(exported["token_redacted"])
+    else:
+        _print_json(exported)
     return 0
 
 
@@ -293,18 +309,28 @@ def _cmd_validate(args: argparse.Namespace) -> int:
     # Keep a stable order while deduping.
     warnings = list(dict.fromkeys(warnings))
 
-    _print_json(
-        {
-            "ok": not warnings,
-            "header": header,
-            "payload": payload,
-            "warnings": warnings,
-            "now": now,
-            "leeway": leeway,
-        }
-    )
+    ok = not warnings
+    if args.output == "text":
+        if ok:
+            print("ok")
+        else:
+            print("not ok")
+            for w in warnings:
+                print(f"warning: {w}")
+    else:
+        _print_json(
+            {
+                "ok": ok,
+                "header": header,
+                "payload": payload,
+                "warnings": warnings,
+                "now": now,
+                "leeway": leeway,
+            }
+        )
     if warnings:
-        _emit_warning_lines(warnings)
+        if args.output != "text":
+            _emit_warning_lines(warnings)
         return 2
     return 0
 
@@ -329,7 +355,10 @@ def _cmd_sample(args: argparse.Namespace) -> int:
     for optional_key in ("verify_key", "sign_key", "jwks"):
         if optional_key in sample:
             output[optional_key] = sample[optional_key]
-    _print_json(output)
+    if args.output == "text":
+        print(str(output["token"]))
+    else:
+        _print_json(output)
     return 0
 
 
@@ -397,7 +426,13 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     output: dict[str, Any] = {"valid": True, "header": header, "payload": payload}
     if thumbprint:
         output["key_thumbprint_sha256"] = thumbprint
-    _print_json(output)
+    if args.output == "text":
+        print("valid")
+        if thumbprint:
+            print(f"key_thumbprint_sha256: {thumbprint}")
+        _print_json_compact(payload)
+    else:
+        _print_json(output)
     return 0
 
 
@@ -415,19 +450,31 @@ def _cmd_sign(args: argparse.Namespace) -> int:
         kid=args.kid,
         headers=_load_headers(args),
     )
-    print(token)
+    if args.output == "json":
+        header, decoded = decode_token(token)
+        hmac_len = len(key_text.encode("utf-8")) if key_text and args.alg.startswith("HS") else None
+        warnings = analyze_claims(decoded, header, hmac_key_len=hmac_len)
+        _print_json({"token": token, "header": header, "payload": decoded, "warnings": warnings})
+    else:
+        print(token)
     return 0
 
 
 def _cmd_jwk(args: argparse.Namespace) -> int:
     jwk = jwk_from_pem(Path(args.pem).read_text(encoding="utf-8"), kid=args.kid)
-    _print_json(jwk)
+    if args.output == "text":
+        _print_json_compact(jwk)
+    else:
+        _print_json(jwk)
     return 0
 
 
 def _cmd_jwks(args: argparse.Namespace) -> int:
     jwks = jwks_from_pem(Path(args.pem).read_text(encoding="utf-8"), kid=args.kid)
-    _print_json(jwks)
+    if args.output == "text":
+        _print_json_compact(jwks)
+    else:
+        _print_json(jwks)
     return 0
 
 
@@ -444,10 +491,22 @@ def main(argv: list[str] | None = None) -> int:
 
     p_decode = sub.add_parser("decode", help="Decode a JWT without verifying signature")
     p_decode.add_argument("--token", required=True, help="JWT string (use '-' to read from stdin)")
+    p_decode.add_argument(
+        "--output",
+        choices=["json", "text"],
+        default="json",
+        help="Output format (default: json). text prints the decoded payload only.",
+    )
     p_decode.set_defaults(func=_cmd_decode)
 
     p_inspect = sub.add_parser("inspect", help="Decode + show warnings (like the web UI)")
     p_inspect.add_argument("--token", required=True, help="JWT string (use '-' to read from stdin)")
+    p_inspect.add_argument(
+        "--output",
+        choices=["json", "text"],
+        default="json",
+        help="Output format (default: json). text prints warnings + decoded payload only.",
+    )
     p_inspect.add_argument(
         "--no-warnings", action="store_true", help="Do not print warnings to stderr"
     )
@@ -459,6 +518,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_validate.add_argument(
         "--token", required=True, help="JWT string (use '-' to read from stdin)"
+    )
+    p_validate.add_argument(
+        "--output",
+        choices=["json", "text"],
+        default="json",
+        help="Output format (default: json). text prints ok/not ok and warning lines.",
     )
     p_validate.add_argument(
         "--policy",
@@ -504,9 +569,21 @@ def main(argv: list[str] | None = None) -> int:
         "export", help="Export a copy-safe JSON bundle (redacts the signature)"
     )
     p_export.add_argument("--token", required=True, help="JWT string (use '-' to read from stdin)")
+    p_export.add_argument(
+        "--output",
+        choices=["json", "text"],
+        default="json",
+        help="Output format (default: json). text prints only the redacted token.",
+    )
     p_export.set_defaults(func=_cmd_export)
 
     p_sample = sub.add_parser("sample", help="Generate offline demo tokens/keys (no network)")
+    p_sample.add_argument(
+        "--output",
+        choices=["json", "text"],
+        default="json",
+        help="Output format (default: json). text prints only the token.",
+    )
     p_sample.add_argument(
         "--kind",
         choices=[
@@ -539,6 +616,12 @@ def main(argv: list[str] | None = None) -> int:
 
     p_verify = sub.add_parser("verify", help="Verify a JWT signature and claims")
     p_verify.add_argument("--token", required=True, help="JWT string (use '-' to read from stdin)")
+    p_verify.add_argument(
+        "--output",
+        choices=["json", "text"],
+        default="json",
+        help="Output format (default: json). text prints a brief success output and payload.",
+    )
     p_verify.add_argument("--alg", help="Override algorithm (e.g. HS256, RS256, ES256, EdDSA)")
     p_verify.add_argument("--key", help="Path to secret or PEM key")
     p_verify.add_argument(
@@ -601,6 +684,12 @@ def main(argv: list[str] | None = None) -> int:
     p_sign.add_argument(
         "--alg", default="HS256", help="Algorithm (HS256, RS256, ES256, EdDSA, or none)"
     )
+    p_sign.add_argument(
+        "--output",
+        choices=["text", "json"],
+        default="text",
+        help="Output format (default: text). json includes token + decoded header/payload + warnings.",
+    )
     p_sign.add_argument("--key", help="Path to secret or PEM private key (not used for alg=none)")
     p_sign.add_argument(
         "--key-text",
@@ -612,11 +701,23 @@ def main(argv: list[str] | None = None) -> int:
     p_jwk = sub.add_parser("jwk", help="Convert PEM to JWK")
     p_jwk.add_argument("--pem", required=True, help="Path to PEM public key")
     p_jwk.add_argument("--kid", help="Optional key id")
+    p_jwk.add_argument(
+        "--output",
+        choices=["json", "text"],
+        default="json",
+        help="Output format (default: json). text prints compact JSON.",
+    )
     p_jwk.set_defaults(func=_cmd_jwk)
 
     p_jwks = sub.add_parser("jwks", help="Convert PEM to JWKS")
     p_jwks.add_argument("--pem", required=True, help="Path to PEM public key")
     p_jwks.add_argument("--kid", help="Optional key id")
+    p_jwks.add_argument(
+        "--output",
+        choices=["json", "text"],
+        default="json",
+        help="Output format (default: json). text prints compact JSON.",
+    )
     p_jwks.set_defaults(func=_cmd_jwks)
 
     p_serve = sub.add_parser("serve", help="Launch the jwt.io-style web UI")
