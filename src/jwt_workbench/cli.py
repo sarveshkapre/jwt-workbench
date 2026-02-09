@@ -307,7 +307,23 @@ def main(argv: list[str] | None = None) -> int:
     p_sample = sub.add_parser("sample", help="Generate offline demo tokens/keys (no network)")
     p_sample.add_argument(
         "--kind",
-        choices=["hs256", "rs256-pem", "rs256-jwks", "es256-pem", "eddsa-pem", "none"],
+        choices=[
+            "hs256",
+            "hs384",
+            "hs512",
+            "rs256-pem",
+            "rs384-pem",
+            "rs512-pem",
+            "ps256-pem",
+            "ps384-pem",
+            "ps512-pem",
+            "rs256-jwks",
+            "es256-pem",
+            "es384-pem",
+            "es512-pem",
+            "eddsa-pem",
+            "none",
+        ],
         default="hs256",
         help="Sample kind (default: hs256)",
     )

@@ -75,9 +75,14 @@ _INDEX_HTML = """
           <button id="safeExport" class="ghost" type="button" aria-label="Safe export JSON bundle">Safe export</button>
           <select id="sampleKind" aria-label="Sample preset">
             <option value="hs256">Sample HS256</option>
+            <option value="hs512">Sample HS512</option>
             <option value="rs256-pem">Sample RS256 (PEM)</option>
+            <option value="rs512-pem">Sample RS512 (PEM)</option>
+            <option value="ps256-pem">Sample PS256 (PEM)</option>
             <option value="rs256-jwks">Sample RS256 (JWKS)</option>
             <option value="es256-pem">Sample ES256 (PEM)</option>
+            <option value="es384-pem">Sample ES384 (PEM)</option>
+            <option value="es512-pem">Sample ES512 (PEM)</option>
             <option value="eddsa-pem">Sample EdDSA (PEM)</option>
             <option value="none">Sample none</option>
           </select>
@@ -87,8 +92,17 @@ _INDEX_HTML = """
           <label for="alg">Algorithm</label>
           <select id="alg">
             <option value="HS256">HS256</option>
+            <option value="HS384">HS384</option>
+            <option value="HS512">HS512</option>
             <option value="RS256">RS256</option>
+            <option value="RS384">RS384</option>
+            <option value="RS512">RS512</option>
+            <option value="PS256">PS256</option>
+            <option value="PS384">PS384</option>
+            <option value="PS512">PS512</option>
             <option value="ES256">ES256</option>
+            <option value="ES384">ES384</option>
+            <option value="ES512">ES512</option>
             <option value="EdDSA">EdDSA</option>
             <option value="none">none (unsigned)</option>
           </select>
@@ -370,6 +384,34 @@ const KEY_PRESETS = {
       alg: 'ES256',
     },
     {
+      id: 'pem-ec-p384-private',
+      label: 'Sample EC P-384 private key',
+      kind: 'api',
+      apiKind: 'pem-ec-p384-private',
+      alg: 'ES384',
+    },
+    {
+      id: 'pem-ec-p384-public',
+      label: 'Sample EC P-384 public key',
+      kind: 'api',
+      apiKind: 'pem-ec-p384-public',
+      alg: 'ES384',
+    },
+    {
+      id: 'pem-ec-p521-private',
+      label: 'Sample EC P-521 private key',
+      kind: 'api',
+      apiKind: 'pem-ec-p521-private',
+      alg: 'ES512',
+    },
+    {
+      id: 'pem-ec-p521-public',
+      label: 'Sample EC P-521 public key',
+      kind: 'api',
+      apiKind: 'pem-ec-p521-public',
+      alg: 'ES512',
+    },
+    {
       id: 'pem-ed25519-private',
       label: 'Sample Ed25519 private key',
       kind: 'api',
@@ -400,6 +442,20 @@ const KEY_PRESETS = {
       alg: 'ES256',
     },
     {
+      id: 'jwk-ec-p384-sample',
+      label: 'Sample EC P-384 JWK',
+      kind: 'api',
+      apiKind: 'jwk-ec-p384',
+      alg: 'ES384',
+    },
+    {
+      id: 'jwk-ec-p521-sample',
+      label: 'Sample EC P-521 JWK',
+      kind: 'api',
+      apiKind: 'jwk-ec-p521',
+      alg: 'ES512',
+    },
+    {
       id: 'jwk-okp-sample',
       label: 'Sample Ed25519 OKP JWK',
       kind: 'api',
@@ -420,6 +476,22 @@ const KEY_PRESETS = {
       value:
         '{\n  "kty": "EC",\n  "kid": "demo-ec1",\n  "use": "sig",\n  "alg": "ES256",\n  "crv": "P-256",\n  "x": "<x>",\n  "y": "<y>"\n}',
       alg: 'ES256',
+    },
+    {
+      id: 'jwk-ec-p384-template',
+      label: 'Template EC JWK (P-384)',
+      kind: 'static',
+      value:
+        '{\n  "kty": "EC",\n  "kid": "demo-ec384",\n  "use": "sig",\n  "alg": "ES384",\n  "crv": "P-384",\n  "x": "<x>",\n  "y": "<y>"\n}',
+      alg: 'ES384',
+    },
+    {
+      id: 'jwk-ec-p521-template',
+      label: 'Template EC JWK (P-521)',
+      kind: 'static',
+      value:
+        '{\n  "kty": "EC",\n  "kid": "demo-ec521",\n  "use": "sig",\n  "alg": "ES512",\n  "crv": "P-521",\n  "x": "<x>",\n  "y": "<y>"\n}',
+      alg: 'ES512',
     },
     {
       id: 'jwk-okp-template',
@@ -444,6 +516,20 @@ const KEY_PRESETS = {
       kind: 'api',
       apiKind: 'jwks-ec',
       alg: 'ES256',
+    },
+    {
+      id: 'jwks-ec-p384-sample',
+      label: 'Sample EC P-384 JWKS (2 keys)',
+      kind: 'api',
+      apiKind: 'jwks-ec-p384',
+      alg: 'ES384',
+    },
+    {
+      id: 'jwks-ec-p521-sample',
+      label: 'Sample EC P-521 JWKS (2 keys)',
+      kind: 'api',
+      apiKind: 'jwks-ec-p521',
+      alg: 'ES512',
     },
     {
       id: 'jwks-okp-sample',
@@ -997,7 +1083,24 @@ const updateKeyUi = () => {
   jwksViewerEl.hidden = noneAlg || keyType !== 'jwks';
 };
 
-algEl.addEventListener('change', updateKeyUi);
+const recommendedKeyTypeForAlg = (alg) => {
+  if (!alg || alg === 'none') {
+    return null;
+  }
+  if (alg.startsWith('HS')) {
+    return 'secret';
+  }
+  return 'pem';
+};
+
+algEl.addEventListener('change', () => {
+  // Reduce key-type confusion: when no key is present, auto-select the typical key tab for the alg.
+  const recommended = recommendedKeyTypeForAlg(algEl.value);
+  if (recommended && !keyEl.value.trim() && keyTypeEl.value !== recommended) {
+    setKeyType(recommended);
+  }
+  updateKeyUi();
+});
 keyTypeEl.addEventListener('change', () => setKeyType(keyTypeEl.value));
 keyTabs.forEach((tab) => {
   tab.addEventListener('click', () => setKeyType(tab.dataset.keytype));
@@ -1688,6 +1791,10 @@ class JWTWorkbenchHandler(BaseHTTPRequestHandler):
                     alg = header.get("alg")
                 if not alg:
                     raise ValueError("missing alg in header; supply alg")
+                if str(alg).startswith("HS") and key_type != "secret":
+                    raise ValueError("HS* algorithms require key_type=secret")
+                if not str(alg).startswith("HS") and key_type == "secret":
+                    raise ValueError("non-HS algorithms require key_type=pem/jwk/jwks")
                 if aud is not None and not isinstance(aud, (str, list)):
                     raise ValueError("aud must be a string or list of strings")
                 if isinstance(aud, list):
@@ -1758,8 +1865,10 @@ class JWTWorkbenchHandler(BaseHTTPRequestHandler):
                 key_text = str(payload.get("key_text", ""))
                 kid = payload.get("kid")
                 if alg != "none":
-                    if key_type not in {"secret", "pem"}:
-                        raise ValueError("signing requires secret or PEM key")
+                    if alg.startswith("HS") and key_type != "secret":
+                        raise ValueError("HS* signing requires key_type=secret")
+                    if not alg.startswith("HS") and key_type != "pem":
+                        raise ValueError("non-HS signing requires key_type=pem")
                     if not key_text:
                         raise ValueError("key material is required")
                 if payload_text is None:

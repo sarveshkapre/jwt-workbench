@@ -57,6 +57,42 @@ def _ec_p256_keypair() -> tuple[str, str]:
     return private_pem, public_pem
 
 
+def _ec_p384_keypair() -> tuple[str, str]:
+    private_key = ec.generate_private_key(ec.SECP384R1())
+    private_pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode("utf-8")
+    public_pem = (
+        private_key.public_key()
+        .public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        .decode("utf-8")
+    )
+    return private_pem, public_pem
+
+
+def _ec_p521_keypair() -> tuple[str, str]:
+    private_key = ec.generate_private_key(ec.SECP521R1())
+    private_pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode("utf-8")
+    public_pem = (
+        private_key.public_key()
+        .public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        .decode("utf-8")
+    )
+    return private_pem, public_pem
+
+
 def _ed25519_keypair() -> tuple[str, str]:
     private_key = ed25519.Ed25519PrivateKey.generate()
     private_pem = private_key.private_bytes(
@@ -94,6 +130,83 @@ def test_hs256_sign_verify_decode() -> None:
     )
     assert header["alg"] == "HS256"
     assert verified["sub"] == "user123"
+
+
+@pytest.mark.parametrize("alg", ["HS384", "HS512"])
+def test_hs_variants_sign_verify_decode(alg: str) -> None:
+    payload = {"sub": "user123", "exp": int(time.time()) + 60}
+    token = sign_token(payload, key_path=None, key_text="secret123", alg=alg, kid=None)
+
+    header, decoded = decode_token(token)
+    assert header["alg"] == alg
+    assert decoded["sub"] == "user123"
+
+    header, verified = verify_token(
+        token=token,
+        key_path=None,
+        key_text="secret123",
+        jwk_path=None,
+        jwks_path=None,
+        kid=None,
+        alg=None,
+    )
+    assert header["alg"] == alg
+    assert verified["sub"] == "user123"
+
+
+@pytest.mark.parametrize("alg", ["RS384", "RS512", "PS256", "PS384", "PS512"])
+def test_rsa_variants_sign_verify(alg: str) -> None:
+    private_pem, public_pem = _rsa_keypair()
+    payload = {"aud": "test", "exp": int(time.time()) + 60}
+
+    token = sign_token(payload, key_path=None, key_text=private_pem, alg=alg, kid="k1")
+    header, verified = verify_token(
+        token=token,
+        key_path=None,
+        key_text=public_pem,
+        jwk_path=None,
+        jwks_path=None,
+        kid=None,
+        alg=None,
+    )
+    assert header["alg"] == alg
+    assert verified["aud"] == "test"
+
+
+def test_es384_sign_verify() -> None:
+    private_pem, public_pem = _ec_p384_keypair()
+    payload = {"aud": "test", "exp": int(time.time()) + 60}
+    token = sign_token(payload, key_path=None, key_text=private_pem, alg="ES384", kid="ec384")
+    header, verified = verify_token(
+        token=token,
+        key_path=None,
+        key_text=public_pem,
+        jwk_path=None,
+        jwks_path=None,
+        jwks_cache_path=None,
+        kid=None,
+        alg=None,
+    )
+    assert header["alg"] == "ES384"
+    assert verified["aud"] == "test"
+
+
+def test_es512_sign_verify() -> None:
+    private_pem, public_pem = _ec_p521_keypair()
+    payload = {"aud": "test", "exp": int(time.time()) + 60}
+    token = sign_token(payload, key_path=None, key_text=private_pem, alg="ES512", kid="ec521")
+    header, verified = verify_token(
+        token=token,
+        key_path=None,
+        key_text=public_pem,
+        jwk_path=None,
+        jwks_path=None,
+        jwks_cache_path=None,
+        kid=None,
+        alg=None,
+    )
+    assert header["alg"] == "ES512"
+    assert verified["aud"] == "test"
 
 
 def test_rs256_sign_verify_and_jwk() -> None:

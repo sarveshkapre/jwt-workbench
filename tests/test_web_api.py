@@ -135,3 +135,19 @@ def test_export_redacts_signature(web_base_url: str) -> None:
     assert exported["header"]["alg"] == "HS256"
     assert isinstance(exported["payload"], dict)
     assert isinstance(exported["warnings"], list)
+
+
+def test_sign_rejects_secret_for_ps_alg(web_base_url: str) -> None:
+    status, _, payload = _post_json(
+        web_base_url,
+        "/api/sign",
+        {
+            "payload": '{"sub":"x","exp":2000000000}',
+            "header": "{}",
+            "alg": "PS256",
+            "key_type": "secret",
+            "key_text": "secret123",
+        },
+    )
+    assert status == 400
+    assert payload["error"] == "non-HS signing requires key_type=pem"

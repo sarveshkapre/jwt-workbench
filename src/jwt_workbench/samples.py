@@ -10,7 +10,23 @@ from cryptography.hazmat.primitives.asymmetric import ec, ed25519, rsa
 from .core import analyze_claims, decode_token, jwk_from_pem, sign_token
 
 SUPPORTED_SAMPLE_KINDS = frozenset(
-    {"hs256", "rs256-pem", "rs256-jwks", "es256-pem", "eddsa-pem", "none"}
+    {
+        "hs256",
+        "hs384",
+        "hs512",
+        "rs256-pem",
+        "rs384-pem",
+        "rs512-pem",
+        "ps256-pem",
+        "ps384-pem",
+        "ps512-pem",
+        "rs256-jwks",
+        "es256-pem",
+        "es384-pem",
+        "es512-pem",
+        "eddsa-pem",
+        "none",
+    }
 )
 SUPPORTED_KEY_PRESET_KINDS = frozenset(
     {
@@ -18,13 +34,21 @@ SUPPORTED_KEY_PRESET_KINDS = frozenset(
         "pem-public",
         "pem-ec-private",
         "pem-ec-public",
+        "pem-ec-p384-private",
+        "pem-ec-p384-public",
+        "pem-ec-p521-private",
+        "pem-ec-p521-public",
         "pem-ed25519-private",
         "pem-ed25519-public",
         "jwk",
         "jwk-ec",
+        "jwk-ec-p384",
+        "jwk-ec-p521",
         "jwk-okp",
         "jwks",
         "jwks-ec",
+        "jwks-ec-p384",
+        "jwks-ec-p521",
         "jwks-okp",
     }
 )
@@ -55,8 +79,8 @@ def _rsa_keypair() -> tuple[str, str]:
     return private_pem, public_pem
 
 
-def _ec_p256_keypair() -> tuple[str, str]:
-    private_key = ec.generate_private_key(ec.SECP256R1())
+def _ec_keypair(curve: ec.EllipticCurve) -> tuple[str, str]:
+    private_key = ec.generate_private_key(curve)
     private_pem = private_key.private_bytes(
         encoding=serialization.Encoding.PEM,
         format=serialization.PrivateFormat.PKCS8,
@@ -71,6 +95,18 @@ def _ec_p256_keypair() -> tuple[str, str]:
         .decode("utf-8")
     )
     return private_pem, public_pem
+
+
+def _ec_p256_keypair() -> tuple[str, str]:
+    return _ec_keypair(ec.SECP256R1())
+
+
+def _ec_p384_keypair() -> tuple[str, str]:
+    return _ec_keypair(ec.SECP384R1())
+
+
+def _ec_p521_keypair() -> tuple[str, str]:
+    return _ec_keypair(ec.SECP521R1())
 
 
 def _ed25519_keypair() -> tuple[str, str]:
@@ -123,13 +159,14 @@ def generate_sample(kind: str, exp_seconds: int = 3600) -> dict[str, Any]:
             **DEFAULT_POLICY,
         }
 
-    if kind == "hs256":
+    if kind in {"hs256", "hs384", "hs512"}:
         secret = "demo-secret-please-change"
-        token = sign_token(payload, key_path=None, key_text=secret, alg="HS256", kid=None)
+        alg = kind.upper()
+        token = sign_token(payload, key_path=None, key_text=secret, alg=alg, kid=None)
         header, decoded = decode_token(token)
         return {
             "kind": kind,
-            "alg": "HS256",
+            "alg": alg,
             "token": token,
             "header": header,
             "payload": decoded,
@@ -141,13 +178,22 @@ def generate_sample(kind: str, exp_seconds: int = 3600) -> dict[str, Any]:
             **DEFAULT_POLICY,
         }
 
-    if kind in {"rs256-pem", "rs256-jwks"}:
+    if kind in {
+        "rs256-pem",
+        "rs384-pem",
+        "rs512-pem",
+        "ps256-pem",
+        "ps384-pem",
+        "ps512-pem",
+        "rs256-jwks",
+    }:
         private_pem, public_pem = _rsa_keypair()
-        token = sign_token(payload, key_path=None, key_text=private_pem, alg="RS256", kid="demo-k1")
+        alg = kind.split("-", 1)[0].upper()
+        token = sign_token(payload, key_path=None, key_text=private_pem, alg=alg, kid="demo-k1")
         header, decoded = decode_token(token)
         base: dict[str, Any] = {
             "kind": kind,
-            "alg": "RS256",
+            "alg": alg,
             "token": token,
             "header": header,
             "payload": decoded,
@@ -157,7 +203,7 @@ def generate_sample(kind: str, exp_seconds: int = 3600) -> dict[str, Any]:
             "sign_key": {"key_type": "pem", "key_text": private_pem},
             **DEFAULT_POLICY,
         }
-        if kind == "rs256-pem":
+        if kind != "rs256-jwks":
             base["key_type"] = "pem"
             base["key_text"] = private_pem
             return base
@@ -171,20 +217,29 @@ def generate_sample(kind: str, exp_seconds: int = 3600) -> dict[str, Any]:
         base["key_text"] = json.dumps(jwks, indent=2, sort_keys=True)
         return base
 
-    if kind == "es256-pem":
-        private_pem, public_pem = _ec_p256_keypair()
-        token = sign_token(
-            payload, key_path=None, key_text=private_pem, alg="ES256", kid="demo-ec1"
-        )
+    if kind in {"es256-pem", "es384-pem", "es512-pem"}:
+        if kind == "es256-pem":
+            private_pem, public_pem = _ec_p256_keypair()
+            alg = "ES256"
+            kid = "demo-ec1"
+        elif kind == "es384-pem":
+            private_pem, public_pem = _ec_p384_keypair()
+            alg = "ES384"
+            kid = "demo-ec384"
+        else:
+            private_pem, public_pem = _ec_p521_keypair()
+            alg = "ES512"
+            kid = "demo-ec521"
+        token = sign_token(payload, key_path=None, key_text=private_pem, alg=alg, kid=kid)
         header, decoded = decode_token(token)
         return {
             "kind": kind,
-            "alg": "ES256",
+            "alg": alg,
             "token": token,
             "header": header,
             "payload": decoded,
             "warnings": analyze_claims(decoded, header),
-            "kid": "demo-ec1",
+            "kid": kid,
             "verify_key": {"key_type": "pem", "key_text": public_pem},
             "sign_key": {"key_type": "pem", "key_text": private_pem},
             "key_type": "pem",
@@ -232,6 +287,18 @@ def generate_key_preset(kind: str) -> dict[str, Any]:
             return {"key_type": "pem", "key_text": ec_private, "alg": "ES256"}
         return {"key_type": "pem", "key_text": ec_public, "alg": "ES256"}
 
+    if kind in {"pem-ec-p384-private", "pem-ec-p384-public"}:
+        ec_private, ec_public = _ec_p384_keypair()
+        if kind == "pem-ec-p384-private":
+            return {"key_type": "pem", "key_text": ec_private, "alg": "ES384"}
+        return {"key_type": "pem", "key_text": ec_public, "alg": "ES384"}
+
+    if kind in {"pem-ec-p521-private", "pem-ec-p521-public"}:
+        ec_private, ec_public = _ec_p521_keypair()
+        if kind == "pem-ec-p521-private":
+            return {"key_type": "pem", "key_text": ec_private, "alg": "ES512"}
+        return {"key_type": "pem", "key_text": ec_public, "alg": "ES512"}
+
     if kind in {"pem-ed25519-private", "pem-ed25519-public"}:
         ed_private, ed_public = _ed25519_keypair()
         if kind == "pem-ed25519-private":
@@ -255,6 +322,26 @@ def generate_key_preset(kind: str) -> dict[str, Any]:
             "key_text": json.dumps(ec_jwk, indent=2, sort_keys=True),
             "kid": "demo-ec1",
             "alg": "ES256",
+        }
+
+    if kind == "jwk-ec-p384":
+        _, ec_public = _ec_p384_keypair()
+        ec_jwk = jwk_from_pem(ec_public, kid="demo-ec384")
+        return {
+            "key_type": "jwk",
+            "key_text": json.dumps(ec_jwk, indent=2, sort_keys=True),
+            "kid": "demo-ec384",
+            "alg": "ES384",
+        }
+
+    if kind == "jwk-ec-p521":
+        _, ec_public = _ec_p521_keypair()
+        ec_jwk = jwk_from_pem(ec_public, kid="demo-ec521")
+        return {
+            "key_type": "jwk",
+            "key_text": json.dumps(ec_jwk, indent=2, sort_keys=True),
+            "kid": "demo-ec521",
+            "alg": "ES512",
         }
 
     if kind == "jwk-okp":
@@ -289,6 +376,32 @@ def generate_key_preset(kind: str) -> dict[str, Any]:
             "key_text": json.dumps(ec_jwks, indent=2, sort_keys=True),
             "kid": "demo-ec1",
             "alg": "ES256",
+        }
+
+    if kind == "jwks-ec-p384":
+        _, ec_public_1 = _ec_p384_keypair()
+        _, ec_public_2 = _ec_p384_keypair()
+        ec_jwk_1 = jwk_from_pem(ec_public_1, kid="demo-ec384-1")
+        ec_jwk_2 = jwk_from_pem(ec_public_2, kid="demo-ec384-2")
+        ec_jwks = {"keys": [ec_jwk_1, ec_jwk_2]}
+        return {
+            "key_type": "jwks",
+            "key_text": json.dumps(ec_jwks, indent=2, sort_keys=True),
+            "kid": "demo-ec384-1",
+            "alg": "ES384",
+        }
+
+    if kind == "jwks-ec-p521":
+        _, ec_public_1 = _ec_p521_keypair()
+        _, ec_public_2 = _ec_p521_keypair()
+        ec_jwk_1 = jwk_from_pem(ec_public_1, kid="demo-ec521-1")
+        ec_jwk_2 = jwk_from_pem(ec_public_2, kid="demo-ec521-2")
+        ec_jwks = {"keys": [ec_jwk_1, ec_jwk_2]}
+        return {
+            "key_type": "jwks",
+            "key_text": json.dumps(ec_jwks, indent=2, sort_keys=True),
+            "kid": "demo-ec521-1",
+            "alg": "ES512",
         }
 
     if kind == "jwks-okp":

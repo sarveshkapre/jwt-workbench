@@ -5,7 +5,7 @@ Offline JWT decode/verify/sign + JWK/JWKS tools with common footgun checks.
 ## Features
 
 - Decode JWTs without verification.
-- Verify signatures for HS256/RS256/ES256/EdDSA.
+- Verify signatures for HS256/HS384/HS512, RS256/RS384/RS512, PS256/PS384/PS512, ES256/ES384/ES512, and EdDSA.
 - Require critical claims during verification (`exp`, `nbf`, `iat`, `aud`, `iss`).
 - Sign new JWTs.
 - Convert PEM → JWK/JWKS.
