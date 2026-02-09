@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Algorithms: add ES256 + EdDSA support for sign/verify across CLI + web, including JWK/JWKS parsing and PEM → JWK conversion for EC/OKP keys.
+- Verification: add policy profiles (`legacy`, `default`, `strict`) as presets (CLI `--policy`, web UI picker).
+- CLI: add `export` command to emit a copy-safe JSON bundle with signature-redacted token for bug-report sharing.
 - Verification: add required-claims policy support (`--require` / web `require`) for `exp`, `nbf`, `iat`, `aud`, and `iss`.
 - CLI: enforce clearer key-source validation (mutually exclusive key inputs for verify/sign, and reject key material for `alg=none`).
 - Web API: add request hardening (JSON content-type enforcement, request body size cap, incomplete body checks) and no-store response headers.

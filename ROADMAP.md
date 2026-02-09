@@ -8,6 +8,6 @@
 
 ## Next
 
-- Add ES256/EdDSA verification/signing support with safe key parsing.
-- Add JWT export/redaction helpers for safer bug-report sharing.
-- Add optional policy profiles (strict/default/legacy) for verification presets.
+- Add web UI export/redaction helpers for safer bug-report sharing (payload claim masking + one-click copy).
+- Expand algorithm coverage beyond the defaults (HS/RS/ES variants) with compatibility tests.
+- Add release automation checks for changelog/version sync and dependency pin drift.

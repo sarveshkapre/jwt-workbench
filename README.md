@@ -5,11 +5,12 @@ Offline JWT decode/verify/sign + JWK/JWKS tools with common footgun checks.
 ## Features
 
 - Decode JWTs without verification.
-- Verify signatures for HS256/RS256.
+- Verify signatures for HS256/RS256/ES256/EdDSA.
 - Require critical claims during verification (`exp`, `nbf`, `iat`, `aud`, `iss`).
 - Sign new JWTs.
 - Convert PEM → JWK/JWKS.
 - Warn on common claim issues (missing `exp`, expired, missing `aud`/`iss`).
+- Export a copy-safe JSON bundle with signature-redacted token for sharing/debugging.
 
 ## Quickstart
 
@@ -85,6 +86,12 @@ Verify with a JWKS cache file:
 ```bash
 python -m jwt_workbench verify --token "$JWT" --jwks ./jwks.json --jwks-cache ~/.cache/jwt-workbench/jwks.json --kid my-kid
 python -m jwt_workbench verify --token "$JWT" --jwks-cache ~/.cache/jwt-workbench/jwks.json --kid my-kid
+```
+
+Export a copy-safe bundle (signature redacted):
+
+```bash
+python -m jwt_workbench export --token "$JWT"
 ```
 
 Sign (HS256):

@@ -1,3 +1,28 @@
+## 2026-02-09
+
+### Summary
+
+- Added ES256 + EdDSA support for sign/verify across CLI + web, including safe key parsing for PEM/JWK/JWKS.
+- Web UI adds EC/OKP key presets and JWK/JWKS templates for faster ES256/EdDSA workflows.
+- Added verification policy profiles (`legacy`, `default`, `strict`) as quick presets (CLI `--policy`, web UI picker).
+- Added `export` command to emit a copy-safe JSON bundle with signature-redacted token for bug-report sharing.
+
+### How to verify
+
+```bash
+make check
+python -m jwt_workbench sample --kind es256-pem
+python -m jwt_workbench sample --kind eddsa-pem
+python -m jwt_workbench export --token "$(python -m jwt_workbench sample --kind none | python -c 'import json,sys; print(json.load(sys.stdin)[\"token\"])')"
+python -m jwt_workbench verify --policy strict --token "$(python -m jwt_workbench sample --kind hs256 | python -c 'import json,sys; print(json.load(sys.stdin)[\"token\"])')" --key-text "demo-secret-please-change"
+python -m jwt_workbench serve --port 8000
+```
+
+Then open `http://127.0.0.1:8000` and try:
+
+- Algorithm: `ES256` and `EdDSA` in the dropdown, then Sign/Verify using the new presets/templates.
+- Policy profile picker: choose `default` or `strict` and verify required-claim behavior.
+
 ## 2026-02-08
 
 ### Summary
