@@ -112,6 +112,13 @@ def _parse_required_claims(values: list[str] | None) -> list[str] | None:
     return list(dict.fromkeys(items))
 
 
+_VERIFY_POLICY_REQUIRED_CLAIMS: dict[str, list[str] | None] = {
+    "legacy": None,
+    "default": ["exp"],
+    "strict": ["exp", "aud", "iss"],
+}
+
+
 def _validate_verify_args(args: argparse.Namespace) -> None:
     if args.key and args.key_text is not None:
         raise ValueError("use only one of --key or --key-text")
@@ -195,6 +202,11 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     audience = _parse_allowlist(args.aud)
     issuer = _parse_allowlist(args.iss)
     required_claims = _parse_required_claims(args.require)
+    if required_claims is None:
+        policy = str(getattr(args, "policy", "legacy") or "legacy")
+        if policy not in _VERIFY_POLICY_REQUIRED_CLAIMS:
+            raise ValueError("unknown policy profile")
+        required_claims = _VERIFY_POLICY_REQUIRED_CLAIMS[policy]
 
     try:
         header, payload = verify_token(
@@ -300,6 +312,15 @@ def main(argv: list[str] | None = None) -> int:
         help="Path to JWKS cache file (read from cache if jwks not provided; writes on verify)",
     )
     p_verify.add_argument("--kid", help="Key ID to select from JWKS")
+    p_verify.add_argument(
+        "--policy",
+        choices=["legacy", "default", "strict"],
+        default="legacy",
+        help=(
+            "Verification policy preset (default: legacy). "
+            "legacy=require nothing; default=require exp; strict=require exp,aud,iss."
+        ),
+    )
     p_verify.add_argument(
         "--aud",
         action="append",

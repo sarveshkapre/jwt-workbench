@@ -93,6 +93,14 @@ _INDEX_HTML = """
         </div>
         <div class="policy">
           <div class="row">
+            <label for="policyProfile">Policy profile</label>
+            <select id="policyProfile" aria-label="Verification policy profile">
+              <option value="legacy">legacy (require nothing)</option>
+              <option value="default">default (require exp)</option>
+              <option value="strict">strict (require exp,aud,iss)</option>
+            </select>
+          </div>
+          <div class="row">
             <label for="aud">Expected aud</label>
             <input
               id="aud"
@@ -257,6 +265,7 @@ const kidEl = document.getElementById('kid');
 const jwkOutputEl = document.getElementById('jwkOutput');
 const audEl = document.getElementById('aud');
 const issEl = document.getElementById('iss');
+const policyProfileEl = document.getElementById('policyProfile');
 const leewayEl = document.getElementById('leeway');
 const requireClaimsEl = document.getElementById('requireClaims');
 const copyTokenEl = document.getElementById('copyToken');
@@ -452,6 +461,12 @@ const actionButtons = actionButtonIds
   .map((id) => document.getElementById(id))
   .filter((el) => Boolean(el));
 
+const POLICY_PROFILES = {
+  legacy: { leeway: 0, require: [] },
+  default: { leeway: 0, require: ['exp'] },
+  strict: { leeway: 0, require: ['exp', 'aud', 'iss'] },
+};
+
 const setBusy = (busy) => {
   actionButtons.forEach((button) => {
     button.disabled = Boolean(busy);
@@ -517,6 +532,29 @@ const parseClaimRequirements = (value) => {
     return [parsed];
   }
   return Array.from(new Set(parsed));
+};
+
+const inferPolicyProfile = (requireClaims) => {
+  if (!Array.isArray(requireClaims) || requireClaims.length === 0) {
+    return 'legacy';
+  }
+  const normalized = Array.from(new Set(requireClaims.map((item) => String(item).trim()).filter(Boolean)));
+  normalized.sort();
+  if (normalized.length === 1 && normalized[0] === 'exp') {
+    return 'default';
+  }
+  if (normalized.length === 3 && normalized.join(',') === 'aud,exp,iss') {
+    return 'strict';
+  }
+  return 'legacy';
+};
+
+const applyPolicyProfile = () => {
+  const selected = policyProfileEl.value || 'legacy';
+  const profile = POLICY_PROFILES[selected] || POLICY_PROFILES.legacy;
+  leewayEl.value = typeof profile.leeway === 'number' ? String(profile.leeway) : '';
+  requireClaimsEl.value = Array.isArray(profile.require) ? profile.require.join(',') : '';
+  setStatus(`Applied ${selected} policy`, 'ok');
 };
 
 const request = async (path, body) => {
@@ -761,6 +799,7 @@ clearAllEl.addEventListener('click', async () => {
     jwkOutputEl.value = '';
     audEl.value = '';
     issEl.value = '';
+    policyProfileEl.value = 'legacy';
     leewayEl.value = '';
     requireClaimsEl.value = '';
     setWarnings([]);
@@ -768,6 +807,12 @@ clearAllEl.addEventListener('click', async () => {
     updateKeyUi();
     updateJwksPicker();
     updateJwksViewer();
+  });
+});
+
+policyProfileEl.addEventListener('change', async () => {
+  await runAction(async () => {
+    applyPolicyProfile();
   });
 });
 
@@ -791,8 +836,10 @@ loadSampleEl.addEventListener('click', async () => {
     leewayEl.value = typeof data.leeway === 'number' ? String(data.leeway) : '';
     if (Array.isArray(data.require)) {
       requireClaimsEl.value = data.require.join(',');
+      policyProfileEl.value = inferPolicyProfile(data.require);
     } else {
       requireClaimsEl.value = '';
+      policyProfileEl.value = 'legacy';
     }
 
     keyEl.value = data.key_text || '';
@@ -994,6 +1041,7 @@ setKeyType('secret');
 updateKeyUi();
 updateJwksPicker();
 updateJwksViewer();
+policyProfileEl.value = 'legacy';
 """
 
 

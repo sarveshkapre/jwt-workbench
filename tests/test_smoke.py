@@ -199,6 +199,50 @@ def test_verify_required_claim_flag() -> None:
     assert "missing required claim: iss" in verified.stderr.lower()
 
 
+def test_verify_policy_strict_enforces_required_claims() -> None:
+    signed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "jwt_workbench",
+            "sign",
+            "--alg",
+            "HS256",
+            "--payload",
+            '{"sub":"x","aud":"a","exp":2000000000}',
+            "--key-text",
+            "secret123",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert signed.returncode == 0
+    token = signed.stdout.strip()
+
+    verified = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "jwt_workbench",
+            "verify",
+            "--token",
+            token,
+            "--alg",
+            "HS256",
+            "--key-text",
+            "secret123",
+            "--policy",
+            "strict",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert verified.returncode != 0
+    assert "missing required claim" in verified.stderr.lower()
+
+
 def test_verify_rejects_conflicting_key_inputs() -> None:
     proc = subprocess.run(
         [
