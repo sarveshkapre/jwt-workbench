@@ -40,6 +40,54 @@ def test_inspect_help() -> None:
     assert proc.returncode == 0
 
 
+def test_inspect_quiet_suppresses_warning_lines() -> None:
+    sample = subprocess.run(
+        [sys.executable, "-m", "jwt_workbench", "sample", "--kind", "none"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert sample.returncode == 0
+    token = json.loads(sample.stdout)["token"]
+
+    normal = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "jwt_workbench",
+            "inspect",
+            "--token",
+            token,
+            "--output",
+            "text",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert normal.returncode == 0
+    assert "warning:" in normal.stdout.lower()
+
+    quiet = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "jwt_workbench",
+            "inspect",
+            "--token",
+            token,
+            "--output",
+            "text",
+            "--quiet",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert quiet.returncode == 0
+    assert "warning:" not in quiet.stdout.lower()
+
+
 def test_sample_none_outputs_json() -> None:
     proc = subprocess.run(
         [sys.executable, "-m", "jwt_workbench", "sample", "--kind", "none"],
@@ -105,6 +153,47 @@ def test_validate_exit_codes_and_output() -> None:
     bad_payload = json.loads(bad.stdout)
     assert bad_payload["ok"] is False
     assert any("aud claim mismatch" in str(item) for item in bad_payload.get("warnings", []))
+
+    bad_text = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "jwt_workbench",
+            "validate",
+            "--token",
+            token,
+            "--aud",
+            "wrong",
+            "--output",
+            "text",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert bad_text.returncode != 0
+    assert "warning:" in bad_text.stdout.lower()
+
+    bad_text_quiet = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "jwt_workbench",
+            "validate",
+            "--token",
+            token,
+            "--aud",
+            "wrong",
+            "--output",
+            "text",
+            "--quiet",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert bad_text_quiet.returncode != 0
+    assert "warning:" not in bad_text_quiet.stdout.lower()
 
 
 def test_decode_reads_token_from_stdin() -> None:
@@ -184,6 +273,64 @@ def test_verify_reads_key_from_stdin() -> None:
     verified = json.loads(proc.stdout)
     assert verified["valid"] is True
     assert isinstance(verified.get("key_thumbprint_sha256"), str)
+
+
+def test_verify_quiet_suppresses_extra_text_output() -> None:
+    sample = subprocess.run(
+        [sys.executable, "-m", "jwt_workbench", "sample", "--kind", "hs256"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert sample.returncode == 0
+    data = json.loads(sample.stdout)
+    token = data["token"]
+    key_text = data["key_text"]
+
+    normal = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "jwt_workbench",
+            "verify",
+            "--token",
+            token,
+            "--alg",
+            "HS256",
+            "--key-text",
+            key_text,
+            "--output",
+            "text",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert normal.returncode == 0
+    assert "valid" in normal.stdout.lower()
+
+    quiet = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "jwt_workbench",
+            "verify",
+            "--token",
+            token,
+            "--alg",
+            "HS256",
+            "--key-text",
+            key_text,
+            "--output",
+            "text",
+            "--quiet",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert quiet.returncode == 0
+    assert "valid" not in quiet.stdout.lower()
 
 
 def test_verify_oidc_issuer_fetch_and_offline_cache_fallback() -> None:

@@ -173,7 +173,8 @@ def _validate_sign_args(args: argparse.Namespace) -> None:
 
 def _cmd_decode(args: argparse.Namespace) -> int:
     header, payload = decode_token(_load_token(args.token))
-    _emit_warnings(payload, header)
+    if not getattr(args, "quiet", False):
+        _emit_warnings(payload, header)
     if args.output == "text":
         _print_json_compact(payload)
     else:
@@ -185,12 +186,12 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
     header, payload = decode_token(_load_token(args.token))
     warnings = analyze_claims(payload, header)
     if args.output == "text":
-        if not args.no_warnings:
+        if not args.no_warnings and not getattr(args, "quiet", False):
             for w in warnings:
                 print(f"warning: {w}")
         _print_json_compact(payload)
     else:
-        if not args.no_warnings:
+        if not args.no_warnings and not getattr(args, "quiet", False):
             _emit_warning_lines(warnings)
         _print_json({"header": header, "payload": payload, "warnings": warnings})
     return 0
@@ -325,8 +326,9 @@ def _cmd_validate(args: argparse.Namespace) -> int:
             print("ok")
         else:
             print("not ok")
-            for w in warnings:
-                print(f"warning: {w}")
+            if not getattr(args, "quiet", False):
+                for w in warnings:
+                    print(f"warning: {w}")
     else:
         _print_json(
             {
@@ -339,7 +341,7 @@ def _cmd_validate(args: argparse.Namespace) -> int:
             }
         )
     if warnings:
-        if args.output != "text":
+        if args.output != "text" and not getattr(args, "quiet", False):
             _emit_warning_lines(warnings)
         return 2
     return 0
@@ -445,16 +447,18 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         )
     except jwt_exceptions.PyJWTError as exc:
         raise ValueError(format_jwt_error(exc, audience=audience, issuer=issuer)) from exc
-    _emit_warnings(payload, header, hmac_len, now=args.at)
+    if not getattr(args, "quiet", False):
+        _emit_warnings(payload, header, hmac_len, now=args.at)
     output: dict[str, Any] = {"valid": True, "header": header, "payload": payload}
     if thumbprint:
         output["key_thumbprint_sha256"] = thumbprint
     if discovered_jwks_url:
         output["discovered_jwks_url"] = discovered_jwks_url
     if args.output == "text":
-        print("valid")
-        if thumbprint:
-            print(f"key_thumbprint_sha256: {thumbprint}")
+        if not getattr(args, "quiet", False):
+            print("valid")
+            if thumbprint:
+                print(f"key_thumbprint_sha256: {thumbprint}")
         _print_json_compact(payload)
     else:
         _print_json(output)
@@ -522,6 +526,7 @@ def main(argv: list[str] | None = None) -> int:
         default="json",
         help="Output format (default: json). text prints the decoded payload only.",
     )
+    p_decode.add_argument("--quiet", action="store_true", help="Suppress warning lines")
     p_decode.set_defaults(func=_cmd_decode)
 
     p_inspect = sub.add_parser("inspect", help="Decode + show warnings (like the web UI)")
@@ -534,6 +539,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_inspect.add_argument(
         "--no-warnings", action="store_true", help="Do not print warnings to stderr"
+    )
+    p_inspect.add_argument(
+        "--quiet", action="store_true", help="Suppress warning lines (keeps JSON output unchanged)"
     )
     p_inspect.set_defaults(func=_cmd_inspect)
 
@@ -549,6 +557,9 @@ def main(argv: list[str] | None = None) -> int:
         choices=["json", "text"],
         default="json",
         help="Output format (default: json). text prints ok/not ok and warning lines.",
+    )
+    p_validate.add_argument(
+        "--quiet", action="store_true", help="Suppress warning lines (keeps JSON output unchanged)"
     )
     p_validate.add_argument(
         "--policy",
@@ -646,6 +657,11 @@ def main(argv: list[str] | None = None) -> int:
         choices=["json", "text"],
         default="json",
         help="Output format (default: json). text prints a brief success output and payload.",
+    )
+    p_verify.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress warning lines and extra text output (keeps JSON output unchanged)",
     )
     p_verify.add_argument("--alg", help="Override algorithm (e.g. HS256, RS256, ES256, EdDSA)")
     p_verify.add_argument("--key", help="Path to secret or PEM key")

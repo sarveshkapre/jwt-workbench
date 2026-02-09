@@ -46,6 +46,12 @@ Inspect (decode + warnings):
 jwt-workbench inspect --token "$JWT"
 ```
 
+Inspect (payload-only; suppress warning lines for scripting):
+
+```bash
+jwt-workbench inspect --token "$JWT" --output text --quiet
+```
+
 Validate (decode + claim hygiene checks; no signature verification; exits non-zero on issues):
 
 ```bash
@@ -62,6 +68,12 @@ Verify (HS256):
 
 ```bash
 jwt-workbench verify --token "$JWT" --key-text "secret123"
+```
+
+Verify (payload-only; suppress warning lines for scripting):
+
+```bash
+jwt-workbench verify --token "$JWT" --key-text "secret123" --output text --quiet
 ```
 
 Verify with key from stdin:
