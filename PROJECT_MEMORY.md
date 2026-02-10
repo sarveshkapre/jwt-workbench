@@ -33,6 +33,7 @@ This file captures evolving, structured decisions and evidence for `jwt-workbenc
 
 ## Recent Decisions
 
+- 2026-02-10 | Web UI/API: add opt-in JWKS URL + OIDC discovery verification gated by `allow_network` and optional `jwks_cache_path` | Reduce verification setup friction for OIDC issuers while keeping the local web UI offline-by-default and enforcing "opt-in network" server-side | `src/jwt_workbench/web.py`, `tests/test_web_api.py` | `208ffa9` | High | trusted
 - 2026-02-09 | Add `verify --oidc-issuer` (OIDC discovery) with offline fallback via `--jwks-cache` | Reduce verification setup friction for OIDC issuers while keeping network access explicit and optional | `src/jwt_workbench/core.py`, `src/jwt_workbench/cli.py`, `tests/test_jwt_core.py`, `tests/test_smoke.py`, `README.md` | `232b90e` | Medium | trusted
 - 2026-02-09 | Add `--quiet` for scripting (suppress warning lines and extra text output) | Make CLI outputs easier to use in pipelines without changing JSON output shapes | `src/jwt_workbench/cli.py`, `tests/test_smoke.py`, `README.md` | `b3bc11f` | High | trusted
 - 2026-02-09 | Add `make fmt` and refresh trackers/roadmap | Reduce CI-only format drift by making formatting one-command; keep planning docs aligned with shipped work | `Makefile`, `CLONE_FEATURES.md`, `ROADMAP.md` | `b3733f6` | High | trusted
@@ -83,3 +84,7 @@ This file captures evolving, structured decisions and evidence for `jwt-workbenc
 - 2026-02-09 | `./.venv/bin/jwt-workbench serve --port 8123` + `curl http://127.0.0.1:8123/` | pass (HTML served)
 - 2026-02-09 | `curl -X POST http://127.0.0.1:8123/api/sample -H 'Content-Type: application/json' -d '{\"kind\":\"hs512\"}'` | pass (returned `HS512` token with 3 segments)
 - 2026-02-09 | `curl -X POST http://127.0.0.1:8123/api/export -H 'Content-Type: application/json' -d '{\"token\":\"x.y.z\"}'` | pass (returned JSON error `invalid token format`)
+- 2026-02-10 | `make check` | pass
+- 2026-02-10 | `./.venv/bin/python scripts/smoke_web_network.py` | pass (`ok`)
+- 2026-02-10 | `gh run watch 21859722614 --exit-status` | pass (CI for `208ffa9`)
+- 2026-02-10 | `gh run watch 21859950051 --exit-status` | pass (CI for `0c60e8f`)
