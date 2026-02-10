@@ -10,4 +10,3 @@
 
 - Add import/export support for saved offline workbench sessions (safe defaults: never persist private keys).
 - Add import/export for web UI sessions (safe defaults: never persist private keys).
-- Add an explicit "no-network" mode toggle in the web UI (defense-in-depth for any future network helpers).

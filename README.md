@@ -181,3 +181,5 @@ Then open `http://127.0.0.1:8000` in your browser to decode, verify, sign, and c
 
 Verification policy controls (expected `aud`/`iss`, clock skew, and required claims) are available in the web UI verify panel.
 The decoded panel includes a claims table with human-time rendering for `exp`/`nbf`/`iat`.
+
+The web UI verify panel also supports optional JWKS URL fetch and OIDC discovery (explicit opt-in network). Select `JWKS`, optionally set a `JWKS cache file`, enable `Allow network fetch`, and provide either `JWKS URL` or `OIDC issuer`.

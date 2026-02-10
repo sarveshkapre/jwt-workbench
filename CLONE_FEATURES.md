@@ -7,11 +7,14 @@
 - Gaps found during codebase exploration
 
 ## Candidate Features To Do
+- [ ] P2: DX: add a lightweight pre-commit recipe (optional) to run `make fmt`/`make check` locally and reduce CI-only failures. [impact=2 effort=2 fit=3 diff=0 risk=1 conf=3]
 - [ ] P3: Add import/export support for saved offline workbench sessions (never persist private keys by default; explicit opt-in only). [impact=4 effort=4 fit=4 diff=3 risk=3 conf=3]
 - [ ] P3: Add import/export for web UI sessions (token + decoded header/payload + policy controls), with explicit redaction of private key material. [impact=3 effort=4 fit=4 diff=2 risk=3 conf=2]
-- [ ] P3: Add an explicit "no-network" mode toggle in web UI that disables any future network-required helpers (defense-in-depth UX). [impact=2 effort=2 fit=3 diff=1 risk=1 conf=3]
+- [ ] P3: Web UI: fetch and preview JWKS from URL/OIDC (without verifying) to populate the `kid` picker and reduce key-selection friction. [impact=3 effort=3 fit=4 diff=1 risk=2 conf=3]
 
 ## Implemented
+- [x] 2026-02-10: Web UI/API: add opt-in JWKS URL fetch + OIDC discovery for verification with explicit `allow_network` toggle (default off) and optional offline `jwks_cache_path`.
+  Evidence: `src/jwt_workbench/web.py`, `tests/test_web_api.py`, `README.md`, `ROADMAP.md`.
 - [x] 2026-02-09: CLI: add `verify --oidc-issuer` to resolve `jwks_uri` via OIDC discovery (explicit opt-in network) with offline fallback via `--jwks-cache`.
   Evidence: `src/jwt_workbench/core.py`, `src/jwt_workbench/cli.py`, `tests/test_jwt_core.py`, `tests/test_smoke.py`, `README.md`, `CHANGELOG.md`.
 - [x] 2026-02-09: CLI: add `--quiet` on decode/inspect/validate/verify to suppress warning lines and extra text output for scripting (JSON output unchanged).
@@ -74,6 +77,7 @@
 - Request-size and content-type guards are critical for local tooling too because JWT/key payloads are user-controlled.
 - Centralizing sample/key preset generation prevents behavior drift across CLI and web features.
 - JWK/JWKS key-type enforcement (`kty` vs `alg`) prevents accidental key confusion when users paste the wrong material.
+- For local tools, "opt-in network" should be enforced server-side (not just hidden in UI) and support offline cache fallback where possible.
 - Policy profiles are most useful when opt-in and client-side in the web UI (no API schema churn), while CLI can apply them server-side safely.
 - Publishing a minimal web API schema plus tests acts like a low-overhead contract to prevent accidental response churn as features evolve.
 - Market scan (bounded): jwt.io sets the baseline single-page debugger UX (encode/decode side-by-side, copy/clear, optional signature verification). https://jwt.io/
@@ -86,16 +90,14 @@
 ## Gap Map (Against Comparable Tools)
 
 - Missing:
-  - CLI `validate` / lint mode for CI-friendly claim hygiene checks (without requiring signature keys).
-  - Key fingerprint visibility (public-only) to reduce “did I paste the right key?” confusion.
-  - OIDC discovery helper to auto-resolve `jwks_uri` from an issuer (opt-in network).
   - Import/export saved sessions for offline workflows (safe defaults: never persist private keys).
+  - Import/export web UI sessions for offline debugging (safe defaults: never persist private keys).
 - Weak:
-  - CLI ergonomics for terminal use (optional text output, compact views).
+  - Web UI network JWKS flows: fetched JWKS is not previewed in-app yet, so selecting `kid` can be manual.
 - Parity:
   - Decode/verify/sign basics; JWKS key selection; copy/clear UX.
 - Differentiators:
-  - Offline-first, explicit claim policy profiles + required-claims controls, and copy-safe signature redaction.
+  - Offline-first with explicit opt-in network helpers, claim policy profiles + required-claims controls, and copy-safe signature redaction.
 
 ## Notes
 - This file is maintained by the autonomous clone loop.
