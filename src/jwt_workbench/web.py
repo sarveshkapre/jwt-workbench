@@ -10,12 +10,14 @@ from jwt import exceptions as jwt_exceptions
 from .core import (
     analyze_claims,
     decode_token,
+    discover_jwks_uri_from_oidc_issuer,
     format_jwt_error,
     infer_hmac_key_len,
     jwk_from_pem,
     jwk_thumbprint_sha256,
     jwks_from_pem,
     load_key_and_public_jwk_from_material,
+    load_verification_key_and_public_jwk,
     redact_jws_signature,
     sign_token,
     verify_token_with_key,
@@ -45,7 +47,7 @@ _INDEX_HTML = """
             <h1>JWT Workbench</h1>
             <p class="subtitle">Offline JWT decode, verify, sign, and JWK tooling with claim warnings.</p>
           </div>
-          <div class="status-chip">No network required</div>
+          <div id="networkChip" class="status-chip">Offline by default</div>
         </div>
       </div>
     </header>
@@ -284,6 +286,48 @@ _INDEX_HTML = """
           <label for="kid">Key ID (kid)</label>
           <input id="kid" placeholder="Optional kid for JWKS" spellcheck="false" autocapitalize="off" />
         </div>
+        <div id="jwksSources" class="jwks-sources" hidden>
+          <div class="row">
+            <label for="jwksCachePath">JWKS cache file</label>
+            <input
+              id="jwksCachePath"
+              placeholder="Optional path for offline reuse"
+              spellcheck="false"
+              autocapitalize="off"
+            />
+          </div>
+          <div class="toggle-row">
+            <label for="allowNetwork">Allow network fetch</label>
+            <input
+              id="allowNetwork"
+              type="checkbox"
+              aria-label="Allow network fetch for JWKS URL or OIDC discovery"
+            />
+          </div>
+          <div id="networkFields" class="network-fields" hidden>
+            <div class="row">
+              <label for="jwksUrl">JWKS URL</label>
+              <input
+                id="jwksUrl"
+                placeholder="https://issuer.example/.well-known/jwks.json"
+                spellcheck="false"
+                autocapitalize="off"
+              />
+            </div>
+            <div class="row">
+              <label for="oidcIssuer">OIDC issuer (discovery)</label>
+              <input
+                id="oidcIssuer"
+                placeholder="https://issuer.example"
+                spellcheck="false"
+                autocapitalize="off"
+              />
+            </div>
+            <p class="meta">
+              Network fetch is opt-in. If the fetch fails and a cache file exists, the cache is used.
+            </p>
+          </div>
+        </div>
         <div id="jwksPicker" class="jwks-picker" hidden>
           <label for="kidSelect">JWKS keys</label>
           <select id="kidSelect"></select>
@@ -367,6 +411,13 @@ const loadSampleEl = document.getElementById('loadSample');
 const keyPresetEl = document.getElementById('keyPreset');
 const loadPresetEl = document.getElementById('loadPreset');
 const keyTabs = Array.from(document.querySelectorAll('[data-keytype]'));
+const networkChipEl = document.getElementById('networkChip');
+const jwksSourcesEl = document.getElementById('jwksSources');
+const jwksCachePathEl = document.getElementById('jwksCachePath');
+const allowNetworkEl = document.getElementById('allowNetwork');
+const networkFieldsEl = document.getElementById('networkFields');
+const jwksUrlEl = document.getElementById('jwksUrl');
+const oidcIssuerEl = document.getElementById('oidcIssuer');
 
 const KEY_PRESETS = {
   secret: [
@@ -867,10 +918,31 @@ const verify = async () => {
   const iss = parseListInput(issEl.value);
   const requireClaims = parseClaimRequirements(requireClaimsEl.value);
 
+  const keyType = keyTypeEl.value;
+  let jwksCachePath = null;
+  let allowNetwork = false;
+  let jwksUrl = null;
+  let oidcIssuer = null;
+  if (keyType === 'jwks') {
+    const jwksCachePathRaw = (jwksCachePathEl.value || '').trim();
+    jwksCachePath = jwksCachePathRaw === '' ? null : jwksCachePathRaw;
+    allowNetwork = Boolean(allowNetworkEl.checked);
+    const jwksUrlRaw = (jwksUrlEl.value || '').trim();
+    jwksUrl = jwksUrlRaw === '' ? null : jwksUrlRaw;
+    const oidcIssuerRaw = (oidcIssuerEl.value || '').trim();
+    oidcIssuer = oidcIssuerRaw === '' ? null : oidcIssuerRaw;
+    if (jwksUrl && oidcIssuer) {
+      throw new Error('Use either JWKS URL or OIDC issuer (not both)');
+    }
+    if ((jwksUrl || oidcIssuer) && !allowNetwork) {
+      throw new Error('Enable "Allow network fetch" to use JWKS URL or OIDC discovery');
+    }
+  }
+
   const data = await request('/api/verify', {
     token,
     alg: algEl.value,
-    key_type: keyTypeEl.value,
+    key_type: keyType,
     key_text: keyEl.value,
     kid: kidEl.value || null,
     aud,
@@ -878,6 +950,10 @@ const verify = async () => {
     leeway,
     at,
     require: requireClaims,
+    jwks_cache_path: jwksCachePath,
+    allow_network: allowNetwork,
+    jwks_url: jwksUrl,
+    oidc_issuer: oidcIssuer,
   });
   headerEl.value = JSON.stringify(data.header, null, 2);
   payloadEl.value = JSON.stringify(data.payload, null, 2);
@@ -1096,6 +1172,10 @@ clearAllEl.addEventListener('click', async () => {
     leewayEl.value = '';
     verifyAtEl.value = '';
     requireClaimsEl.value = '';
+    jwksCachePathEl.value = '';
+    allowNetworkEl.checked = false;
+    jwksUrlEl.value = '';
+    oidcIssuerEl.value = '';
     maskClaimsEl.value = '';
     exportOutEl.value = '';
     updateClaimsTable(null);
@@ -1128,6 +1208,10 @@ loadSampleEl.addEventListener('click', async () => {
     if (data.key_type) {
       setKeyType(data.key_type);
     }
+    jwksCachePathEl.value = '';
+    allowNetworkEl.checked = false;
+    jwksUrlEl.value = '';
+    oidcIssuerEl.value = '';
 
     audEl.value = data.aud || '';
     issEl.value = data.iss || '';
@@ -1196,12 +1280,34 @@ const updateKeyUi = () => {
     keyEl.placeholder = 'No key required for alg=none';
     kidEl.placeholder = 'Not used for alg=none';
   } else {
-    keyEl.placeholder = 'Paste secret or key material';
+    if (keyType === 'jwks' && allowNetworkEl && allowNetworkEl.checked) {
+      keyEl.placeholder = 'Paste JWKS JSON (or leave blank and use JWKS URL/OIDC below)';
+    } else if (keyType === 'jwks') {
+      keyEl.placeholder = 'Paste JWKS JSON';
+    } else {
+      keyEl.placeholder = 'Paste secret or key material';
+    }
     kidEl.placeholder = 'Optional kid for JWKS';
   }
 
   jwksPickerEl.hidden = noneAlg || keyType !== 'jwks';
   jwksViewerEl.hidden = noneAlg || keyType !== 'jwks';
+
+  if (jwksSourcesEl) {
+    jwksSourcesEl.hidden = noneAlg || keyType !== 'jwks';
+  }
+  const allowNetworkEnabled = !noneAlg && keyType === 'jwks';
+  allowNetworkEl.disabled = !allowNetworkEnabled;
+  jwksCachePathEl.disabled = !allowNetworkEnabled;
+  if (!allowNetworkEnabled) {
+    allowNetworkEl.checked = false;
+  }
+  networkFieldsEl.hidden = !allowNetworkEl.checked;
+  jwksUrlEl.disabled = !allowNetworkEl.checked;
+  oidcIssuerEl.disabled = !allowNetworkEl.checked;
+  if (networkChipEl) {
+    networkChipEl.textContent = allowNetworkEl.checked ? 'Network allowed (opt-in)' : 'Offline by default';
+  }
 };
 
 const recommendedKeyTypeForAlg = (alg) => {
@@ -1225,6 +1331,17 @@ algEl.addEventListener('change', () => {
 keyTypeEl.addEventListener('change', () => setKeyType(keyTypeEl.value));
 keyTabs.forEach((tab) => {
   tab.addEventListener('click', () => setKeyType(tab.dataset.keytype));
+});
+allowNetworkEl.addEventListener('change', () => updateKeyUi());
+jwksUrlEl.addEventListener('input', () => {
+  if (jwksUrlEl.value.trim() && oidcIssuerEl.value.trim()) {
+    oidcIssuerEl.value = '';
+  }
+});
+oidcIssuerEl.addEventListener('input', () => {
+  if (oidcIssuerEl.value.trim() && jwksUrlEl.value.trim()) {
+    jwksUrlEl.value = '';
+  }
 });
 
 const updateJwksPicker = () => {
@@ -1689,6 +1806,36 @@ button.ghost {
   gap: 10px;
 }
 
+.jwks-sources {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--ghost-border);
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.toggle-row label {
+  margin: 0;
+}
+
+.toggle-row input[type="checkbox"] {
+  width: auto;
+  flex: 0 0 auto;
+}
+
+.network-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .tabs {
   display: flex;
   gap: 8px;
@@ -1956,11 +2103,46 @@ class JWTWorkbenchHandler(BaseHTTPRequestHandler):
                 required_claims = payload.get("require")
                 leeway = payload.get("leeway", 0)
                 at = payload.get("at")
+                allow_network = payload.get("allow_network", False)
+                jwks_url = payload.get("jwks_url")
+                oidc_issuer = payload.get("oidc_issuer")
+                jwks_cache_path = payload.get("jwks_cache_path")
                 if not token:
                     raise ValueError("token is required")
                 if key_type not in {"secret", "pem", "jwk", "jwks"}:
                     raise ValueError("key_type must be one of: secret, pem, jwk, jwks")
-                if not key_text:
+                if allow_network is None:
+                    allow_network = False
+                if not isinstance(allow_network, bool):
+                    raise ValueError("allow_network must be a boolean")
+                if jwks_url is not None and not isinstance(jwks_url, str):
+                    raise ValueError("jwks_url must be a string")
+                jwks_url = jwks_url.strip() if isinstance(jwks_url, str) else ""
+                jwks_url = jwks_url or None
+                if oidc_issuer is not None and not isinstance(oidc_issuer, str):
+                    raise ValueError("oidc_issuer must be a string")
+                oidc_issuer = oidc_issuer.strip() if isinstance(oidc_issuer, str) else ""
+                oidc_issuer = oidc_issuer or None
+                if jwks_cache_path is not None and not isinstance(jwks_cache_path, str):
+                    raise ValueError("jwks_cache_path must be a string")
+                jwks_cache_path = (
+                    jwks_cache_path.strip() if isinstance(jwks_cache_path, str) else ""
+                )
+                jwks_cache_path = jwks_cache_path or None
+                if jwks_url and oidc_issuer:
+                    raise ValueError("use only one of jwks_url or oidc_issuer")
+                if (jwks_url or oidc_issuer) and not allow_network:
+                    raise ValueError("network fetch disabled; set allow_network=true")
+                if (jwks_url or oidc_issuer) and key_type != "jwks":
+                    raise ValueError("jwks_url/oidc_issuer requires key_type=jwks")
+                if jwks_cache_path and key_type != "jwks":
+                    raise ValueError("jwks_cache_path requires key_type=jwks")
+                using_jwks_source = bool(jwks_url or oidc_issuer or jwks_cache_path)
+                if using_jwks_source and key_text.strip():
+                    raise ValueError(
+                        "provide either JWKS JSON key_text or jwks_url/oidc_issuer/cache, not both"
+                    )
+                if not key_text and not using_jwks_source:
                     raise ValueError("key material is required")
                 if not alg:
                     header, _ = decode_token(token)
@@ -2018,9 +2200,26 @@ class JWTWorkbenchHandler(BaseHTTPRequestHandler):
                     at = int(at)
                 if at is not None and (not isinstance(at, int) or at < 0):
                     raise ValueError("at must be a non-negative integer")
-                key, public_jwk = load_key_and_public_jwk_from_material(
-                    key_text, str(alg), key_type, kid=str(kid) if kid else None
-                )
+
+                public_jwk: dict[str, Any] | None = None
+                if key_type == "jwks" and using_jwks_source:
+                    resolved_jwks_url: str | None = jwks_url
+                    if oidc_issuer:
+                        resolved_jwks_url = discover_jwks_uri_from_oidc_issuer(oidc_issuer)
+                    key, public_jwk = load_verification_key_and_public_jwk(
+                        key_path=None,
+                        key_text=None,
+                        jwk_path=None,
+                        jwks_path=None,
+                        jwks_url=resolved_jwks_url,
+                        jwks_cache_path=jwks_cache_path,
+                        kid=str(kid) if kid else None,
+                        alg=str(alg),
+                    )
+                else:
+                    key, public_jwk = load_key_and_public_jwk_from_material(
+                        key_text, str(alg), key_type, kid=str(kid) if kid else None
+                    )
                 key_thumbprint: str | None = None
                 if public_jwk is not None:
                     try:

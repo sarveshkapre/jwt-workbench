@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 import urllib.error
 import urllib.request
 from collections.abc import Iterator
-from http.server import ThreadingHTTPServer
-from typing import Any
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import Any, cast
 
 import pytest
 
 from jwt_workbench.core import jwk_from_pem, jwk_thumbprint_sha256
+from jwt_workbench.samples import generate_sample
 from jwt_workbench.web import JWTWorkbenchHandler
 
 
@@ -194,3 +196,122 @@ def test_sign_rejects_secret_for_ps_alg(web_base_url: str) -> None:
     )
     assert status == 400
     assert payload["error"] == "non-HS signing requires key_type=pem"
+
+
+def test_verify_supports_jwks_url_and_cache_with_explicit_network_opt_in(
+    web_base_url: str, tmp_path: Any
+) -> None:
+    sample = generate_sample("rs256-jwks")
+    token = sample["token"]
+    kid = sample["kid"]
+    jwks = json.loads(sample["key_text"])
+    jwk = next(item for item in jwks["keys"] if item.get("kid") == kid)
+    expected_thumbprint = jwk_thumbprint_sha256(jwk)
+
+    class _IssuerHandler(BaseHTTPRequestHandler):
+        def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
+            return
+
+        def do_GET(self) -> None:  # noqa: N802
+            if self.path == "/jwks":
+                body = json.dumps(jwks).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            if self.path == "/.well-known/openid-configuration":
+                server = cast(ThreadingHTTPServer, self.server)
+                _, port = server.server_address
+                config = {"jwks_uri": f"http://127.0.0.1:{port}/jwks"}
+                body = json.dumps(config).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            self.send_response(404)
+            self.end_headers()
+
+    issuer_server = ThreadingHTTPServer(("127.0.0.1", 0), _IssuerHandler)
+    issuer_thread = threading.Thread(target=issuer_server.serve_forever, daemon=True)
+    issuer_thread.start()
+    _, issuer_port = issuer_server.server_address
+    issuer_base = f"http://127.0.0.1:{issuer_port}"
+    jwks_url = f"{issuer_base}/jwks"
+    cache_path = str(tmp_path / "jwks-cache.json")
+
+    try:
+        status, _, payload = _post_json(
+            web_base_url,
+            "/api/verify",
+            {
+                "token": token,
+                "alg": "RS256",
+                "key_type": "jwks",
+                "key_text": "",
+                "kid": kid,
+                "jwks_url": jwks_url,
+                "allow_network": False,
+            },
+        )
+        assert status == 400
+        assert payload["error"] == "network fetch disabled; set allow_network=true"
+
+        status, _, payload = _post_json(
+            web_base_url,
+            "/api/verify",
+            {
+                "token": token,
+                "alg": "RS256",
+                "key_type": "jwks",
+                "key_text": "",
+                "kid": kid,
+                "jwks_url": jwks_url,
+                "jwks_cache_path": cache_path,
+                "allow_network": True,
+            },
+        )
+        assert status == 200
+        assert payload["header"]["alg"] == "RS256"
+        assert payload["key_thumbprint_sha256"] == expected_thumbprint
+        assert os.path.exists(cache_path)
+
+        status, _, payload = _post_json(
+            web_base_url,
+            "/api/verify",
+            {
+                "token": token,
+                "alg": "RS256",
+                "key_type": "jwks",
+                "key_text": "",
+                "kid": kid,
+                "jwks_cache_path": cache_path,
+                "allow_network": False,
+            },
+        )
+        assert status == 200
+        assert payload["key_thumbprint_sha256"] == expected_thumbprint
+
+        status, _, payload = _post_json(
+            web_base_url,
+            "/api/verify",
+            {
+                "token": token,
+                "alg": "RS256",
+                "key_type": "jwks",
+                "key_text": "",
+                "kid": kid,
+                "oidc_issuer": issuer_base,
+                "jwks_cache_path": cache_path,
+                "allow_network": True,
+            },
+        )
+        assert status == 200
+        assert payload["key_thumbprint_sha256"] == expected_thumbprint
+    finally:
+        issuer_server.shutdown()
+        issuer_server.server_close()
+        issuer_thread.join(timeout=5)
