@@ -7,12 +7,22 @@
 - Gaps found during codebase exploration
 
 ## Candidate Features To Do
-- [ ] P2: DX: add a lightweight pre-commit recipe (optional) to run `make fmt`/`make check` locally and reduce CI-only failures. [impact=2 effort=2 fit=3 diff=0 risk=1 conf=3]
-- [ ] P3: Add import/export support for saved offline workbench sessions (never persist private keys by default; explicit opt-in only). [impact=4 effort=4 fit=4 diff=3 risk=3 conf=3]
-- [ ] P3: Add import/export for web UI sessions (token + decoded header/payload + policy controls), with explicit redaction of private key material. [impact=3 effort=4 fit=4 diff=2 risk=3 conf=2]
-- [ ] P3: Web UI: fetch and preview JWKS from URL/OIDC (without verifying) to populate the `kid` picker and reduce key-selection friction. [impact=3 effort=3 fit=4 diff=1 risk=2 conf=3]
+- [ ] P1: Web UI: fetch and preview JWKS from URL/OIDC before verify to auto-populate `kid` picker and reduce manual copy/paste friction. [impact=4 effort=3 fit=4 diff=2 risk=2 conf=3]
+- [ ] P1: CLI: add `verify --session <file>` to consume exported session bundles directly (token + policy + key metadata) for faster offline reruns. [impact=4 effort=3 fit=5 diff=2 risk=2 conf=3]
+- [ ] P1: Add a short `docs/sessions.md` guide and keep README session section concise (link out for deep recipes). [impact=3 effort=1 fit=4 diff=1 risk=1 conf=3]
+- [ ] P2: Add schema version migration helper for session bundles (forward-compatible import when optional fields evolve). [impact=3 effort=3 fit=4 diff=2 risk=2 conf=2]
+- [ ] P2: Add optional passphrase-encrypted session export (`--encrypt-session`) for local sensitive workflows. [impact=4 effort=4 fit=3 diff=3 risk=3 conf=2]
+- [ ] P2: Add lightweight pre-commit recipe (optional) to run `make fmt`/`make check` locally and reduce CI-only failures. [impact=2 effort=2 fit=3 diff=0 risk=1 conf=3]
+- [ ] P2: Add Playwright smoke path for session save/load in the web UI to guard against client-side regressions. [impact=3 effort=3 fit=3 diff=1 risk=2 conf=2]
+- [ ] P2: Add deterministic redaction fingerprints in session exports (hash-only key marker) to improve key-tracking without leaking secrets. [impact=3 effort=3 fit=4 diff=2 risk=2 conf=2]
+- [ ] P3: Add explicit cache freshness metadata (fetched_at / source) for JWKS cache files and surface it in CLI/web outputs. [impact=3 effort=3 fit=3 diff=1 risk=2 conf=2]
+- [ ] P3: Add `jwt-workbench validate --session <file>` for policy linting against saved sessions in CI. [impact=3 effort=2 fit=4 diff=1 risk=1 conf=2]
+- [ ] P3: Add a bundled `make smoke` target that runs one CLI + one web API flow for quick local confidence checks. [impact=2 effort=2 fit=3 diff=0 risk=1 conf=3]
+- [ ] P3: Add basic `--jsonl` output mode for bulk token validation workflows. [impact=2 effort=3 fit=2 diff=1 risk=2 conf=2]
 
 ## Implemented
+- [x] 2026-02-11: Add offline session import/export across CLI + web API/UI with safe defaults (no key material by default) and explicit private-key/secret opt-in.
+  Evidence: `src/jwt_workbench/core.py`, `src/jwt_workbench/cli.py`, `src/jwt_workbench/web.py`, `schemas/web_api_responses.schema.json`, `tests/test_jwt_core.py`, `tests/test_smoke.py`, `tests/test_web_api.py`, `tests/test_web_api_schema.py`.
 - [x] 2026-02-10: Web UI/API: add opt-in JWKS URL fetch + OIDC discovery for verification with explicit `allow_network` toggle (default off) and optional offline `jwks_cache_path`.
   Evidence: `src/jwt_workbench/web.py`, `tests/test_web_api.py`, `README.md`, `ROADMAP.md`.
 - [x] 2026-02-09: CLI: add `verify --oidc-issuer` to resolve `jwks_uri` via OIDC discovery (explicit opt-in network) with offline fallback via `--jwks-cache`.
@@ -80,9 +90,10 @@
 - For local tools, "opt-in network" should be enforced server-side (not just hidden in UI) and support offline cache fallback where possible.
 - Policy profiles are most useful when opt-in and client-side in the web UI (no API schema churn), while CLI can apply them server-side safely.
 - Publishing a minimal web API schema plus tests acts like a low-overhead contract to prevent accidental response churn as features evolve.
+- Session bundles should be validated and normalized on import (recompute header/payload/warnings from token) so stale or tampered fields do not silently drive behavior.
+- Safe defaults matter most for saved artifacts: omit key material by default and require explicit opt-in for private keys/secrets.
 - Market scan (bounded): jwt.io sets the baseline single-page debugger UX (encode/decode side-by-side, copy/clear, optional signature verification). https://jwt.io/
-- Market scan (bounded): jwt.ms is a widely used “paste a token” viewer (common in Azure/Microsoft ecosystems) with a fast decode-first workflow baseline. https://jwt.ms/
-- Market scan (bounded): token.dev positions as a modern token debugger emphasizing safe copy/share workflows and quick claim inspection. https://token.dev/
+- Market scan (bounded): jwt.ms emphasizes local decode behavior ("decoded locally in your browser"), reinforcing offline-first UX expectations for token tools. https://jwt.ms/
 - Market scan (bounded): OIDC issuers commonly publish `jwks_uri` via discovery (`/.well-known/openid-configuration`) which tools often support to reduce setup friction. https://openid.net/specs/openid-connect-discovery-1_0.html
 - Market scan (bounded): Developer docs commonly describe JWKS + rotation workflows and emphasize `kid` selection as the stable way to pick keys. https://auth0.com/docs/secure/tokens/json-web-tokens/json-web-key-sets
 - Market scan (bounded): RFC 7638 defines a standard JWK thumbprint (SHA-256) for computing stable key fingerprints from public JWK fields. https://www.rfc-editor.org/rfc/rfc7638
@@ -90,14 +101,13 @@
 ## Gap Map (Against Comparable Tools)
 
 - Missing:
-  - Import/export saved sessions for offline workflows (safe defaults: never persist private keys).
-  - Import/export web UI sessions for offline debugging (safe defaults: never persist private keys).
+  - Pre-verify JWKS fetch/preview flow in the web UI that hydrates `kid` selection from URL/OIDC without requiring a verify attempt.
 - Weak:
-  - Web UI network JWKS flows: fetched JWKS is not previewed in-app yet, so selecting `kid` can be manual.
+  - Session bundles are import/exportable, but `verify` does not yet accept a session file directly (`--session`) for one-step reruns.
 - Parity:
-  - Decode/verify/sign basics; JWKS key selection; copy/clear UX.
+  - Decode/verify/sign basics; JWKS key selection; copy/clear UX; saved-session roundtrips.
 - Differentiators:
-  - Offline-first with explicit opt-in network helpers, claim policy profiles + required-claims controls, and copy-safe signature redaction.
+  - Offline-first with explicit opt-in network helpers, claim policy profiles + required-claims controls, copy-safe signature redaction, and session exports with explicit private-key opt-in.
 
 ## Notes
 - This file is maintained by the autonomous clone loop.

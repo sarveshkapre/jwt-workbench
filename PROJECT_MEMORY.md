@@ -33,6 +33,8 @@ This file captures evolving, structured decisions and evidence for `jwt-workbenc
 
 ## Recent Decisions
 
+- 2026-02-11 | Add session import/export across CLI + web API/UI with safe defaults (`session-export`, `session-import`, `/api/session-export`, `/api/session-import`) | Session persistence was the highest-impact roadmap gap; teams need reproducible offline debugging context across runs without copying sensitive key material by default | `src/jwt_workbench/core.py`, `src/jwt_workbench/cli.py`, `src/jwt_workbench/web.py`, `tests/test_jwt_core.py`, `tests/test_smoke.py`, `tests/test_web_api.py`, `tests/test_web_api_schema.py` | `1c621ef` | High | trusted
+- 2026-02-11 | Enforce explicit opt-in for private keys/secrets in session exports | "Safe defaults" must be enforced server-side and CLI-side; private key material should never be persisted accidentally when users export a session | `src/jwt_workbench/core.py`, `src/jwt_workbench/cli.py`, `src/jwt_workbench/web.py`, `tests/test_smoke.py`, `tests/test_web_api.py` | `1c621ef` | High | trusted
 - 2026-02-10 | Web UI/API: add opt-in JWKS URL + OIDC discovery verification gated by `allow_network` and optional `jwks_cache_path` | Reduce verification setup friction for OIDC issuers while keeping the local web UI offline-by-default and enforcing "opt-in network" server-side | `src/jwt_workbench/web.py`, `tests/test_web_api.py` | `208ffa9` | High | trusted
 - 2026-02-09 | Add `verify --oidc-issuer` (OIDC discovery) with offline fallback via `--jwks-cache` | Reduce verification setup friction for OIDC issuers while keeping network access explicit and optional | `src/jwt_workbench/core.py`, `src/jwt_workbench/cli.py`, `tests/test_jwt_core.py`, `tests/test_smoke.py`, `README.md` | `232b90e` | Medium | trusted
 - 2026-02-09 | Add `--quiet` for scripting (suppress warning lines and extra text output) | Make CLI outputs easier to use in pipelines without changing JSON output shapes | `src/jwt_workbench/cli.py`, `tests/test_smoke.py`, `README.md` | `b3bc11f` | High | trusted
@@ -56,12 +58,15 @@ This file captures evolving, structured decisions and evidence for `jwt-workbenc
 
 ## Mistakes And Fixes
 
+- 2026-02-11 | Session import regression when key material omitted | Root cause: `import_session_bundle()` always passed `include_private_key_material=True` into export normalization, which violated the helper invariant when `key_text` was absent. Fix: gate `include_private_key_material` on whether key material exists. Prevention: when adding boolean option pairs with dependencies, include explicit tests for both "flag set" and "flag unset/empty input" paths. | `src/jwt_workbench/core.py`, `tests/test_smoke.py`, `tests/test_web_api.py` | trusted
 - 2026-02-09 | Release check regex bug | Root cause: double-escaped regex tokens in a raw string (`\\s`, `\\b`) so the changelog check never matched. Fix: use `\s`/`\b` in the pattern and keep a quick sanity run in `make check`. Prevention: avoid double-escaping in raw regex strings; add a minimal unit-like assertion in scripts when possible. | `scripts/release_check.py` | trusted
 - 2026-02-09 | Sample kind regression during refactor | Root cause: `rs256-pem` briefly dropped from the RSA sample-kind branch while expanding variants. Fix: include `rs256-pem` in the RSA path and rely on `make check` to catch breakage. Prevention: add a targeted test ensuring every `SUPPORTED_SAMPLE_KINDS` kind is runnable. | `src/jwt_workbench/samples.py` | trusted
 - 2026-02-09 | Web `/api/verify` 500 on PEM private keys | Root cause: verification path passed PEM private keys through to PyJWT/cryptography, which expects a verify-capable public key object; private keys can lack `verify()`. Fix: derive and use the public key for PEM verification (CLI + web) and add regression coverage. Prevention: treat PEM input as "public for verify, private for sign" in loaders; keep an integration test that verifies a token using the sample PEM key material. | `src/jwt_workbench/core.py`, `src/jwt_workbench/web.py`, `tests/test_web_api.py` | trusted
 
 ## Verification Evidence
 
+- 2026-02-11 | `make check` | pass
+- 2026-02-11 | `./.venv/bin/python -m jwt_workbench serve --port 8137` + POST `/api/sample` + POST `/api/session-export` + POST `/api/session-import` | pass (`key_material_included=False`; imported `verify.key_type=secret`)
 - 2026-02-09 | `make check` | pass
 - 2026-02-09 | `gh run view 21842262004` | pass (CI for `232b90e`)
 - 2026-02-09 | `gh run watch 21842394858 --exit-status` | pass (CI for `b3733f6`)
