@@ -8,5 +8,5 @@
 
 ## Next
 
-- Add import/export support for saved offline workbench sessions (safe defaults: never persist private keys).
-- Add import/export for web UI sessions (safe defaults: never persist private keys).
+- Add pre-verify JWKS fetch/preview in web UI (URL/OIDC) to auto-populate `kid` selection before verification.
+- Add `verify --session <file>` to apply saved session context directly in CLI.

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Sessions: add offline session import/export for CLI (`session-export`, `session-import`) and web API/UI (`/api/session-export`, `/api/session-import`, Save/Load session buttons) with safe defaults (no key material by default).
+- Sessions: require explicit opt-in to persist private keys/secrets (`--include-private-key-material` / `include_private_key_material`), and normalize imports by recomputing decoded header/payload/warnings from the token.
 - Web API: publish a minimal JSON schema for API responses and validate it in tests to prevent accidental breaking changes.
 - Claim warnings: add footgun warnings for risky JWT headers (`jku`, `x5u`, `crit`) that can imply network fetching or special processing in other stacks.
 - CLI: add `--output json|text` on most commands (and `sign --output json`) for quicker terminal usage without changing defaults.

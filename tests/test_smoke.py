@@ -240,6 +240,130 @@ def test_export_outputs_redacted_bundle() -> None:
     assert isinstance(exported["payload"], dict)
 
 
+def test_session_export_import_roundtrip_with_safe_defaults() -> None:
+    sample = subprocess.run(
+        [sys.executable, "-m", "jwt_workbench", "sample", "--kind", "hs256"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert sample.returncode == 0
+    sample_data = json.loads(sample.stdout)
+    token = sample_data["token"]
+    secret = sample_data["key_text"]
+
+    with tempfile.TemporaryDirectory() as td:
+        out_path = str(Path(td) / "session.json")
+        exported_proc = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "jwt_workbench",
+                "session-export",
+                "--token",
+                token,
+                "--alg",
+                "HS256",
+                "--key-type",
+                "secret",
+                "--key-text",
+                secret,
+                "--out",
+                out_path,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert exported_proc.returncode == 0
+        exported = json.loads(exported_proc.stdout)
+        verify = exported["verify"]
+        assert verify["key_type"] == "secret"
+        assert "key_text" not in verify
+        assert exported["key_material_included"] is False
+        assert Path(out_path).exists()
+
+        imported_proc = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "jwt_workbench",
+                "session-import",
+                "--session",
+                out_path,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert imported_proc.returncode == 0
+        imported = json.loads(imported_proc.stdout)
+        assert imported["token"] == token
+        assert imported["verify"]["key_type"] == "secret"
+
+
+def test_session_export_includes_sensitive_key_only_with_explicit_opt_in() -> None:
+    sample = subprocess.run(
+        [sys.executable, "-m", "jwt_workbench", "sample", "--kind", "hs256"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert sample.returncode == 0
+    sample_data = json.loads(sample.stdout)
+    token = sample_data["token"]
+    secret = sample_data["key_text"]
+
+    no_private = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "jwt_workbench",
+            "session-export",
+            "--token",
+            token,
+            "--alg",
+            "HS256",
+            "--key-type",
+            "secret",
+            "--key-text",
+            secret,
+            "--include-key-material",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert no_private.returncode == 0
+    no_private_export = json.loads(no_private.stdout)
+    assert "key_text" not in no_private_export["verify"]
+
+    with_private = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "jwt_workbench",
+            "session-export",
+            "--token",
+            token,
+            "--alg",
+            "HS256",
+            "--key-type",
+            "secret",
+            "--key-text",
+            secret,
+            "--include-key-material",
+            "--include-private-key-material",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert with_private.returncode == 0
+    with_private_export = json.loads(with_private.stdout)
+    assert with_private_export["verify"]["key_text"] == secret
+
+
 def test_verify_reads_key_from_stdin() -> None:
     sample = subprocess.run(
         [sys.executable, "-m", "jwt_workbench", "sample", "--kind", "rs256-pem"],

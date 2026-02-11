@@ -21,6 +21,26 @@ from jwt import algorithms
 from jwt import exceptions as jwt_exceptions
 
 _SUPPORTED_REQUIRED_CLAIMS = frozenset({"exp", "nbf", "iat", "aud", "iss"})
+_SESSION_SCHEMA_VERSION = 1
+_SESSION_PRIVATE_PEM_MARKERS = (
+    "BEGIN PRIVATE KEY",
+    "BEGIN RSA PRIVATE KEY",
+    "BEGIN EC PRIVATE KEY",
+    "BEGIN OPENSSH PRIVATE KEY",
+    "BEGIN ENCRYPTED PRIVATE KEY",
+)
+_SESSION_PRIVATE_JWK_FIELDS = frozenset(
+    {
+        "d",
+        "p",
+        "q",
+        "dp",
+        "dq",
+        "qi",
+        "oth",
+        "k",
+    }
+)
 
 
 def decode_token(token: str) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -50,6 +70,259 @@ def redact_jws_signature(token: str, replacement: str = "REDACTED") -> str:
     if not replacement or "." in replacement:
         raise ValueError("invalid replacement")
     return f"{parts[0]}.{parts[1]}.{replacement}"
+
+
+def _normalize_session_allowlist(value: str | list[str] | None) -> str | list[str] | None:
+    single, multi = _normalize_allowlist(value)
+    if multi is not None:
+        return multi
+    return single
+
+
+def _jwk_has_private_fields(jwk: dict[str, Any]) -> bool:
+    return any(field in jwk for field in _SESSION_PRIVATE_JWK_FIELDS)
+
+
+def _contains_private_key_material(key_type: str, key_text: str) -> bool:
+    text = key_text.strip()
+    if not text:
+        return False
+
+    if key_type == "secret":
+        return True
+
+    if key_type == "pem":
+        upper = text.upper()
+        return any(marker in upper for marker in _SESSION_PRIVATE_PEM_MARKERS)
+
+    if key_type == "jwk":
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            return False
+        return isinstance(parsed, dict) and _jwk_has_private_fields(cast(dict[str, Any], parsed))
+
+    if key_type == "jwks":
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            return False
+        if not isinstance(parsed, dict):
+            return False
+        keys = parsed.get("keys")
+        if not isinstance(keys, list):
+            return False
+        return any(
+            isinstance(item, dict) and _jwk_has_private_fields(cast(dict[str, Any], item))
+            for item in keys
+        )
+
+    return False
+
+
+def export_session_bundle(
+    *,
+    token: str,
+    alg: str | None,
+    key_type: str,
+    key_text: str | None = None,
+    kid: str | None = None,
+    audience: str | list[str] | None = None,
+    issuer: str | list[str] | None = None,
+    leeway: int = 0,
+    required_claims: str | list[str] | None = None,
+    at: int | None = None,
+    allow_network: bool = False,
+    jwks_url: str | None = None,
+    oidc_issuer: str | None = None,
+    jwks_cache_path: str | None = None,
+    include_key_material: bool = False,
+    include_private_key_material: bool = False,
+) -> dict[str, Any]:
+    if key_type not in {"secret", "pem", "jwk", "jwks"}:
+        raise ValueError("key_type must be one of: secret, pem, jwk, jwks")
+    if leeway < 0:
+        raise ValueError("leeway must be a non-negative integer")
+    if at is not None and at < 0:
+        raise ValueError("at must be a non-negative integer")
+    if include_private_key_material and not include_key_material:
+        raise ValueError("include_private_key_material requires include_key_material=true")
+    if jwks_url and oidc_issuer:
+        raise ValueError("use only one of jwks_url or oidc_issuer")
+    if (jwks_url or oidc_issuer) and not allow_network:
+        raise ValueError("network fetch disabled; set allow_network=true")
+
+    cleaned_token = token.strip()
+    if not cleaned_token:
+        raise ValueError("token is required")
+
+    if alg is not None and not alg.strip():
+        alg = None
+    if kid is not None and not kid.strip():
+        kid = None
+
+    cleaned_key_text = (key_text or "").strip()
+    normalized_audience = _normalize_session_allowlist(audience)
+    normalized_issuer = _normalize_session_allowlist(issuer)
+    normalized_required = _normalize_required_claims(required_claims)
+
+    header, payload = decode_token(cleaned_token)
+    warnings = analyze_claims(payload, header, now=at)
+
+    included_key_text: str | None = None
+    notes: list[str] = []
+    if include_key_material and cleaned_key_text:
+        is_private = _contains_private_key_material(key_type, cleaned_key_text)
+        if is_private and not include_private_key_material:
+            notes.append(
+                "private key material omitted (set include_private_key_material=true to include)"
+            )
+        else:
+            included_key_text = key_text
+
+    if key_type == "jwks":
+        if jwks_url is not None and not jwks_url.strip():
+            jwks_url = None
+        if oidc_issuer is not None and not oidc_issuer.strip():
+            oidc_issuer = None
+        if jwks_cache_path is not None and not jwks_cache_path.strip():
+            jwks_cache_path = None
+
+    verify: dict[str, Any] = {
+        "alg": alg or header.get("alg"),
+        "key_type": key_type,
+        "leeway": leeway,
+        "allow_network": bool(allow_network),
+    }
+    if kid is not None:
+        verify["kid"] = kid
+    if normalized_audience is not None:
+        verify["aud"] = normalized_audience
+    if normalized_issuer is not None:
+        verify["iss"] = normalized_issuer
+    if normalized_required is not None:
+        verify["require"] = normalized_required
+    if at is not None:
+        verify["at"] = at
+    if key_type == "jwks":
+        if jwks_url is not None:
+            verify["jwks_url"] = jwks_url
+        if oidc_issuer is not None:
+            verify["oidc_issuer"] = oidc_issuer
+        if jwks_cache_path is not None:
+            verify["jwks_cache_path"] = jwks_cache_path
+    if included_key_text is not None:
+        verify["key_text"] = included_key_text
+
+    bundle: dict[str, Any] = {
+        "schema_version": _SESSION_SCHEMA_VERSION,
+        "created_at": int(time.time()),
+        "token": cleaned_token,
+        "token_redacted": redact_jws_signature(cleaned_token),
+        "header": header,
+        "payload": payload,
+        "warnings": warnings,
+        "verify": verify,
+        "key_material_included": "key_text" in verify,
+    }
+    if notes:
+        bundle["notes"] = notes
+    return bundle
+
+
+def import_session_bundle(session: dict[str, Any]) -> dict[str, Any]:
+    schema_version = session.get("schema_version")
+    if schema_version != _SESSION_SCHEMA_VERSION:
+        raise ValueError(
+            f"unsupported session schema_version: {schema_version} (expected {_SESSION_SCHEMA_VERSION})"
+        )
+
+    token = session.get("token")
+    if not isinstance(token, str) or not token.strip():
+        raise ValueError("session token is required")
+
+    verify_obj = session.get("verify", {})
+    if not isinstance(verify_obj, dict):
+        raise ValueError("session verify must be an object")
+
+    alg = verify_obj.get("alg")
+    if alg is not None and not isinstance(alg, str):
+        raise ValueError("session verify.alg must be a string")
+
+    key_type_raw = verify_obj.get("key_type", "secret")
+    if not isinstance(key_type_raw, str):
+        raise ValueError("session verify.key_type must be a string")
+    key_type = key_type_raw.strip() or "secret"
+    if key_type not in {"secret", "pem", "jwk", "jwks"}:
+        raise ValueError("session verify.key_type must be one of: secret, pem, jwk, jwks")
+
+    key_text = verify_obj.get("key_text")
+    if key_text is not None and not isinstance(key_text, str):
+        raise ValueError("session verify.key_text must be a string")
+
+    kid = verify_obj.get("kid")
+    if kid is not None and not isinstance(kid, str):
+        raise ValueError("session verify.kid must be a string")
+
+    aud = verify_obj.get("aud")
+    if aud is not None and not isinstance(aud, (str, list)):
+        raise ValueError("session verify.aud must be a string or list of strings")
+
+    iss = verify_obj.get("iss")
+    if iss is not None and not isinstance(iss, (str, list)):
+        raise ValueError("session verify.iss must be a string or list of strings")
+
+    leeway = verify_obj.get("leeway", 0)
+    if not isinstance(leeway, int):
+        raise ValueError("session verify.leeway must be an integer")
+
+    required_claims = verify_obj.get("require")
+    if required_claims is not None and not isinstance(required_claims, (str, list)):
+        raise ValueError("session verify.require must be a string or list of strings")
+
+    at = verify_obj.get("at")
+    if at is not None and not isinstance(at, int):
+        raise ValueError("session verify.at must be an integer")
+
+    allow_network = verify_obj.get("allow_network", False)
+    if not isinstance(allow_network, bool):
+        raise ValueError("session verify.allow_network must be a boolean")
+
+    jwks_url = verify_obj.get("jwks_url")
+    if jwks_url is not None and not isinstance(jwks_url, str):
+        raise ValueError("session verify.jwks_url must be a string")
+
+    oidc_issuer = verify_obj.get("oidc_issuer")
+    if oidc_issuer is not None and not isinstance(oidc_issuer, str):
+        raise ValueError("session verify.oidc_issuer must be a string")
+
+    jwks_cache_path = verify_obj.get("jwks_cache_path")
+    if jwks_cache_path is not None and not isinstance(jwks_cache_path, str):
+        raise ValueError("session verify.jwks_cache_path must be a string")
+
+    include_key_material = key_text is not None
+    normalized = export_session_bundle(
+        token=token,
+        alg=alg,
+        key_type=key_type,
+        key_text=key_text,
+        kid=kid,
+        audience=cast(str | list[str] | None, aud),
+        issuer=cast(str | list[str] | None, iss),
+        leeway=leeway,
+        required_claims=cast(str | list[str] | None, required_claims),
+        at=at,
+        allow_network=allow_network,
+        jwks_url=jwks_url,
+        oidc_issuer=oidc_issuer,
+        jwks_cache_path=jwks_cache_path,
+        include_key_material=include_key_material,
+        include_private_key_material=include_key_material,
+    )
+    created_at = session.get("created_at")
+    if isinstance(created_at, int) and created_at >= 0:
+        normalized["created_at"] = created_at
+    return normalized
 
 
 def _looks_like_pem(text: str) -> bool:

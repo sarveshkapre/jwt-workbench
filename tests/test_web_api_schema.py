@@ -119,6 +119,28 @@ def test_web_api_responses_match_published_schema(web_base_url: str) -> None:
     assert status == 200
     _validate("ExportResponse", exported)
 
+    status, _, session_exported = _post_json(
+        web_base_url,
+        "/api/session-export",
+        {
+            "token": token,
+            "alg": "HS256",
+            "key_type": "secret",
+            "key_text": secret,
+            "include_key_material": False,
+        },
+    )
+    assert status == 200
+    _validate("SessionExportResponse", session_exported)
+
+    status, _, session_imported = _post_json(
+        web_base_url,
+        "/api/session-import",
+        {"session": session_exported["session"]},
+    )
+    assert status == 200
+    _validate("SessionImportResponse", session_imported)
+
     status, _, preset = _post_json(web_base_url, "/api/key-preset", {"kind": "jwks"})
     assert status == 200
     _validate("KeyPresetResponse", preset)

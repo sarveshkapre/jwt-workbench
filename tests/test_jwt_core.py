@@ -16,7 +16,9 @@ from jwt_workbench.core import (
     analyze_claims,
     decode_token,
     discover_jwks_uri_from_oidc_issuer,
+    export_session_bundle,
     format_jwt_error,
+    import_session_bundle,
     jwk_from_pem,
     jwk_thumbprint_sha256,
     jwks_from_pem,
@@ -449,6 +451,72 @@ def test_redact_jws_signature() -> None:
 
     with pytest.raises(ValueError):
         redact_jws_signature("x.y")
+
+
+def test_session_export_omits_sensitive_key_by_default() -> None:
+    token = sign_token(
+        {"sub": "x", "exp": int(time.time()) + 60},
+        key_path=None,
+        key_text="secret123",
+        alg="HS256",
+        kid=None,
+    )
+    session = export_session_bundle(
+        token=token,
+        alg="HS256",
+        key_type="secret",
+        key_text="secret123",
+        include_key_material=False,
+    )
+    verify = cast(dict[str, object], session["verify"])
+    assert verify["key_type"] == "secret"
+    assert "key_text" not in verify
+    assert session["key_material_included"] is False
+
+
+def test_session_export_allows_sensitive_key_with_explicit_opt_in() -> None:
+    token = sign_token(
+        {"sub": "x", "exp": int(time.time()) + 60},
+        key_path=None,
+        key_text="secret123",
+        alg="HS256",
+        kid=None,
+    )
+    session = export_session_bundle(
+        token=token,
+        alg="HS256",
+        key_type="secret",
+        key_text="secret123",
+        include_key_material=True,
+        include_private_key_material=True,
+    )
+    verify = cast(dict[str, object], session["verify"])
+    assert verify["key_text"] == "secret123"
+    assert session["key_material_included"] is True
+
+
+def test_session_import_normalizes_and_recomputes_claim_warnings() -> None:
+    sample = generate_sample("hs256")
+    token = cast(str, sample["token"])
+    exported = export_session_bundle(
+        token=token,
+        alg="HS256",
+        key_type="secret",
+        key_text=cast(str, sample["key_text"]),
+        audience=["demo-aud"],
+        issuer=["demo-iss"],
+        required_claims=["exp", "aud"],
+        include_key_material=True,
+        include_private_key_material=True,
+    )
+    normalized = import_session_bundle(exported)
+    assert normalized["schema_version"] == 1
+    assert normalized["token"] == token
+    verify = cast(dict[str, object], normalized["verify"])
+    assert verify["alg"] == "HS256"
+    assert verify["aud"] == "demo-aud"
+    assert verify["iss"] == "demo-iss"
+    assert isinstance(normalized["warnings"], list)
 
 
 def test_hs_refuses_pem_secret() -> None:

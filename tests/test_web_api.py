@@ -182,6 +182,74 @@ def test_export_redacts_signature(web_base_url: str) -> None:
     assert isinstance(exported["warnings"], list)
 
 
+def test_session_export_and_import_with_safe_defaults(web_base_url: str) -> None:
+    sample_status, _, sample = _post_json(web_base_url, "/api/sample", {"kind": "hs256"})
+    assert sample_status == 200
+    token = sample["token"]
+
+    status, _, exported = _post_json(
+        web_base_url,
+        "/api/session-export",
+        {
+            "token": token,
+            "alg": "HS256",
+            "key_type": "secret",
+            "key_text": sample["key_text"],
+            "include_key_material": False,
+        },
+    )
+    assert status == 200
+    session = exported["session"]
+    assert session["key_material_included"] is False
+    assert "key_text" not in session["verify"]
+
+    import_status, _, imported = _post_json(
+        web_base_url,
+        "/api/session-import",
+        {"session": session},
+    )
+    assert import_status == 200
+    imported_session = imported["session"]
+    assert imported_session["token"] == token
+    assert imported_session["verify"]["key_type"] == "secret"
+
+
+def test_session_export_requires_explicit_private_key_opt_in(web_base_url: str) -> None:
+    sample_status, _, sample = _post_json(web_base_url, "/api/sample", {"kind": "hs256"})
+    assert sample_status == 200
+    token = sample["token"]
+    secret = sample["key_text"]
+
+    no_private_status, _, no_private = _post_json(
+        web_base_url,
+        "/api/session-export",
+        {
+            "token": token,
+            "alg": "HS256",
+            "key_type": "secret",
+            "key_text": secret,
+            "include_key_material": True,
+        },
+    )
+    assert no_private_status == 200
+    assert "key_text" not in no_private["session"]["verify"]
+
+    with_private_status, _, with_private = _post_json(
+        web_base_url,
+        "/api/session-export",
+        {
+            "token": token,
+            "alg": "HS256",
+            "key_type": "secret",
+            "key_text": secret,
+            "include_key_material": True,
+            "include_private_key_material": True,
+        },
+    )
+    assert with_private_status == 200
+    assert with_private["session"]["verify"]["key_text"] == secret
+
+
 def test_sign_rejects_secret_for_ps_alg(web_base_url: str) -> None:
     status, _, payload = _post_json(
         web_base_url,

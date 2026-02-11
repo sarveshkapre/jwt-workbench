@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any
+from typing import Any, cast
 
 from jwt import exceptions as jwt_exceptions
 
@@ -11,7 +11,9 @@ from .core import (
     analyze_claims,
     decode_token,
     discover_jwks_uri_from_oidc_issuer,
+    export_session_bundle,
     format_jwt_error,
+    import_session_bundle,
     infer_hmac_key_len,
     jwk_from_pem,
     jwk_thumbprint_sha256,
@@ -76,6 +78,19 @@ _INDEX_HTML = """
           <button id="copyToken" class="ghost" type="button" aria-label="Copy JWT">Copy</button>
           <button id="clearAll" class="ghost" type="button" aria-label="Clear all fields">Clear</button>
           <button id="safeExport" class="ghost" type="button" aria-label="Safe export JSON bundle">Safe export</button>
+          <button id="sessionExport" class="ghost" type="button" aria-label="Export workbench session">
+            Save session
+          </button>
+          <button id="sessionImport" class="ghost" type="button" aria-label="Import workbench session">
+            Load session
+          </button>
+          <input
+            id="sessionImportFile"
+            type="file"
+            accept="application/json,.json"
+            hidden
+            aria-hidden="true"
+          />
           <select id="sampleKind" aria-label="Sample preset">
             <option value="hs256">Sample HS256</option>
             <option value="hs512">Sample HS512</option>
@@ -282,6 +297,16 @@ _INDEX_HTML = """
           spellcheck="false"
           autocapitalize="off"
         ></textarea>
+        <div class="session-options">
+          <label>
+            <input id="sessionIncludeKey" type="checkbox" />
+            Include key material in session export
+          </label>
+          <label>
+            <input id="sessionIncludePrivateKey" type="checkbox" />
+            Include private keys/secrets (sensitive)
+          </label>
+        </div>
         <div class="row">
           <label for="kid">Key ID (kid)</label>
           <input id="kid" placeholder="Optional kid for JWKS" spellcheck="false" autocapitalize="off" />
@@ -390,6 +415,9 @@ const verifyAtEl = document.getElementById('verifyAt');
 const requireClaimsEl = document.getElementById('requireClaims');
 const copyTokenEl = document.getElementById('copyToken');
 const safeExportEl = document.getElementById('safeExport');
+const sessionExportEl = document.getElementById('sessionExport');
+const sessionImportEl = document.getElementById('sessionImport');
+const sessionImportFileEl = document.getElementById('sessionImportFile');
 const copyJwkOutputEl = document.getElementById('copyJwkOutput');
 const formatHeaderEl = document.getElementById('formatHeader');
 const formatPayloadEl = document.getElementById('formatPayload');
@@ -418,6 +446,8 @@ const allowNetworkEl = document.getElementById('allowNetwork');
 const networkFieldsEl = document.getElementById('networkFields');
 const jwksUrlEl = document.getElementById('jwksUrl');
 const oidcIssuerEl = document.getElementById('oidcIssuer');
+const sessionIncludeKeyEl = document.getElementById('sessionIncludeKey');
+const sessionIncludePrivateKeyEl = document.getElementById('sessionIncludePrivateKey');
 
 const KEY_PRESETS = {
   secret: [
@@ -650,6 +680,8 @@ const actionButtonIds = [
   'decode',
   'verify',
   'sign',
+  'sessionExport',
+  'sessionImport',
   'copyToken',
   'clearAll',
   'loadSample',
@@ -895,12 +927,11 @@ const decode = async () => {
   setStatus('Decoded', 'ok');
 };
 
-const verify = async () => {
+const collectVerifyRequest = () => {
   const token = tokenEl.value.trim();
   if (!token) {
-    return;
+    throw new Error('JWT is required');
   }
-  setStatus('', '');
 
   const leewayRaw = (leewayEl.value || '').trim();
   const leeway = leewayRaw === '' ? 0 : Number.parseInt(leewayRaw, 10);
@@ -939,7 +970,7 @@ const verify = async () => {
     }
   }
 
-  const data = await request('/api/verify', {
+  return {
     token,
     alg: algEl.value,
     key_type: keyType,
@@ -954,7 +985,12 @@ const verify = async () => {
     allow_network: allowNetwork,
     jwks_url: jwksUrl,
     oidc_issuer: oidcIssuer,
-  });
+  };
+};
+
+const verify = async () => {
+  setStatus('', '');
+  const data = await request('/api/verify', collectVerifyRequest());
   headerEl.value = JSON.stringify(data.header, null, 2);
   payloadEl.value = JSON.stringify(data.payload, null, 2);
   updateClaimsTable(data.payload);
@@ -1031,6 +1067,125 @@ const generateSafeExport = async ({ copy } = { copy: false }) => {
   if (copy) {
     await copyText(exportOutEl.value);
   }
+};
+
+const downloadJsonFile = (filename, payload) => {
+  const blob = new Blob([JSON.stringify(payload, null, 2) + '\\n'], {
+    type: 'application/json',
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};
+
+const applyImportedSession = (session) => {
+  const verify = session && typeof session === 'object' ? session.verify || {} : {};
+  if (typeof session.token === 'string') {
+    tokenEl.value = session.token;
+  }
+  if (verify && typeof verify.alg === 'string' && verify.alg) {
+    algEl.value = verify.alg;
+  }
+  if (verify && typeof verify.key_type === 'string' && verify.key_type) {
+    setKeyType(verify.key_type);
+  }
+  if (verify && typeof verify.key_text === 'string') {
+    keyEl.value = verify.key_text;
+    sessionIncludeKeyEl.checked = true;
+  } else {
+    keyEl.value = '';
+    sessionIncludeKeyEl.checked = false;
+  }
+  if (verify && typeof verify.kid === 'string') {
+    kidEl.value = verify.kid;
+  } else {
+    kidEl.value = '';
+  }
+  if (verify && Array.isArray(verify.aud)) {
+    audEl.value = verify.aud.join(',');
+  } else if (verify && typeof verify.aud === 'string') {
+    audEl.value = verify.aud;
+  } else {
+    audEl.value = '';
+  }
+  if (verify && Array.isArray(verify.iss)) {
+    issEl.value = verify.iss.join(',');
+  } else if (verify && typeof verify.iss === 'string') {
+    issEl.value = verify.iss;
+  } else {
+    issEl.value = '';
+  }
+  if (verify && Number.isFinite(verify.leeway)) {
+    leewayEl.value = String(verify.leeway);
+  } else {
+    leewayEl.value = '';
+  }
+  if (verify && Number.isFinite(verify.at)) {
+    verifyAtEl.value = String(verify.at);
+  } else {
+    verifyAtEl.value = '';
+  }
+  if (verify && Array.isArray(verify.require)) {
+    requireClaimsEl.value = verify.require.join(',');
+    policyProfileEl.value = inferPolicyProfile(verify.require);
+  } else if (verify && typeof verify.require === 'string') {
+    requireClaimsEl.value = verify.require;
+    policyProfileEl.value = inferPolicyProfile([verify.require]);
+  } else {
+    requireClaimsEl.value = '';
+    policyProfileEl.value = 'legacy';
+  }
+  allowNetworkEl.checked = Boolean(verify && verify.allow_network);
+  jwksUrlEl.value = verify && typeof verify.jwks_url === 'string' ? verify.jwks_url : '';
+  oidcIssuerEl.value =
+    verify && typeof verify.oidc_issuer === 'string' ? verify.oidc_issuer : '';
+  jwksCachePathEl.value =
+    verify && typeof verify.jwks_cache_path === 'string' ? verify.jwks_cache_path : '';
+  sessionIncludePrivateKeyEl.checked = false;
+  sessionIncludePrivateKeyEl.disabled = !sessionIncludeKeyEl.checked;
+  updateKeyUi();
+  updateJwksPicker();
+  updateJwksViewer();
+};
+
+const exportSession = async () => {
+  const verifyRequest = collectVerifyRequest();
+  const response = await request('/api/session-export', {
+    ...verifyRequest,
+    include_key_material: Boolean(sessionIncludeKeyEl.checked),
+    include_private_key_material: Boolean(sessionIncludePrivateKeyEl.checked),
+  });
+  const session = response.session || {};
+  const ts = new Date().toISOString().replace(/[:.]/g, '-');
+  downloadJsonFile(`jwt-workbench-session-${ts}.json`, session);
+  if (Array.isArray(session.notes) && session.notes.length > 0) {
+    setStatus(`Session saved (${session.notes[0]})`, 'ok');
+  } else {
+    setStatus('Session saved', 'ok');
+  }
+};
+
+const importSession = async () => {
+  const files = sessionImportFileEl.files;
+  if (!files || files.length === 0) {
+    return;
+  }
+  const text = await files[0].text();
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (err) {
+    throw new Error('Session file must be valid JSON');
+  }
+  const response = await request('/api/session-import', { session: parsed });
+  applyImportedSession(response.session || {});
+  await decode();
+  setStatus('Session loaded', 'ok');
 };
 
 const convertJwk = async () => {
@@ -1158,6 +1313,21 @@ safeExportEl.addEventListener('click', async () => {
   });
 });
 
+sessionExportEl.addEventListener('click', async () => {
+  await runAction(exportSession);
+});
+
+sessionImportEl.addEventListener('click', async () => {
+  sessionImportFileEl.click();
+});
+
+sessionImportFileEl.addEventListener('change', async () => {
+  await runAction(async () => {
+    await importSession();
+    sessionImportFileEl.value = '';
+  });
+});
+
 clearAllEl.addEventListener('click', async () => {
   await runAction(async () => {
     tokenEl.value = '';
@@ -1176,6 +1346,9 @@ clearAllEl.addEventListener('click', async () => {
     allowNetworkEl.checked = false;
     jwksUrlEl.value = '';
     oidcIssuerEl.value = '';
+    sessionIncludeKeyEl.checked = false;
+    sessionIncludePrivateKeyEl.checked = false;
+    sessionIncludePrivateKeyEl.disabled = true;
     maskClaimsEl.value = '';
     exportOutEl.value = '';
     updateClaimsTable(null);
@@ -1185,6 +1358,13 @@ clearAllEl.addEventListener('click', async () => {
     updateJwksPicker();
     updateJwksViewer();
   });
+});
+
+sessionIncludeKeyEl.addEventListener('change', () => {
+  sessionIncludePrivateKeyEl.disabled = !sessionIncludeKeyEl.checked;
+  if (!sessionIncludeKeyEl.checked) {
+    sessionIncludePrivateKeyEl.checked = false;
+  }
 });
 
 policyProfileEl.addEventListener('change', async () => {
@@ -1503,6 +1683,7 @@ setKeyType('secret');
 updateKeyUi();
 updateJwksPicker();
 updateJwksViewer();
+sessionIncludePrivateKeyEl.disabled = true;
 policyProfileEl.value = 'legacy';
 """
 
@@ -1806,6 +1987,26 @@ button.ghost {
   gap: 10px;
 }
 
+.session-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.session-options label {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.session-options input[type="checkbox"] {
+  width: auto;
+  flex: 0 0 auto;
+}
+
 .jwks-sources {
   display: flex;
   flex-direction: column;
@@ -2091,6 +2292,82 @@ class JWTWorkbenchHandler(BaseHTTPRequestHandler):
                         "notes": "JWT signature replaced with REDACTED for safe sharing",
                     }
                 )
+                return
+            if self.path == "/api/session-export":
+                token = str(payload.get("token", "")).strip()
+                if not token:
+                    raise ValueError("token is required")
+                key_type = payload.get("key_type", "secret")
+                if not isinstance(key_type, str):
+                    raise ValueError("key_type must be a string")
+                key_text = payload.get("key_text")
+                if key_text is not None and not isinstance(key_text, str):
+                    raise ValueError("key_text must be a string")
+                alg = payload.get("alg")
+                if alg is not None and not isinstance(alg, str):
+                    raise ValueError("alg must be a string")
+                kid = payload.get("kid")
+                if kid is not None and not isinstance(kid, str):
+                    raise ValueError("kid must be a string")
+                aud = payload.get("aud")
+                if aud is not None and not isinstance(aud, (str, list)):
+                    raise ValueError("aud must be a string or list of strings")
+                iss = payload.get("iss")
+                if iss is not None and not isinstance(iss, (str, list)):
+                    raise ValueError("iss must be a string or list of strings")
+                required_claims = payload.get("require")
+                if required_claims is not None and not isinstance(required_claims, (str, list)):
+                    raise ValueError("require must be a string or list of strings")
+                leeway = payload.get("leeway", 0)
+                if not isinstance(leeway, int):
+                    raise ValueError("leeway must be a non-negative integer")
+                at = payload.get("at")
+                if at is not None and not isinstance(at, int):
+                    raise ValueError("at must be a non-negative integer")
+                allow_network = payload.get("allow_network", False)
+                if not isinstance(allow_network, bool):
+                    raise ValueError("allow_network must be a boolean")
+                jwks_url = payload.get("jwks_url")
+                if jwks_url is not None and not isinstance(jwks_url, str):
+                    raise ValueError("jwks_url must be a string")
+                oidc_issuer = payload.get("oidc_issuer")
+                if oidc_issuer is not None and not isinstance(oidc_issuer, str):
+                    raise ValueError("oidc_issuer must be a string")
+                jwks_cache_path = payload.get("jwks_cache_path")
+                if jwks_cache_path is not None and not isinstance(jwks_cache_path, str):
+                    raise ValueError("jwks_cache_path must be a string")
+                include_key_material = payload.get("include_key_material", False)
+                if not isinstance(include_key_material, bool):
+                    raise ValueError("include_key_material must be a boolean")
+                include_private_key_material = payload.get("include_private_key_material", False)
+                if not isinstance(include_private_key_material, bool):
+                    raise ValueError("include_private_key_material must be a boolean")
+                session = export_session_bundle(
+                    token=token,
+                    alg=alg,
+                    key_type=key_type,
+                    key_text=key_text,
+                    kid=kid,
+                    audience=aud,
+                    issuer=iss,
+                    leeway=leeway,
+                    required_claims=required_claims,
+                    at=at,
+                    allow_network=allow_network,
+                    jwks_url=jwks_url,
+                    oidc_issuer=oidc_issuer,
+                    jwks_cache_path=jwks_cache_path,
+                    include_key_material=include_key_material,
+                    include_private_key_material=include_private_key_material,
+                )
+                self._send_json({"session": session})
+                return
+            if self.path == "/api/session-import":
+                session_obj = payload.get("session")
+                if not isinstance(session_obj, dict):
+                    raise ValueError("session must be an object")
+                normalized = import_session_bundle(cast(dict[str, Any], session_obj))
+                self._send_json({"session": normalized})
                 return
             if self.path == "/api/verify":
                 token = str(payload.get("token", "")).strip()

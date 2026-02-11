@@ -13,7 +13,9 @@ from .core import (
     analyze_claims,
     decode_token,
     discover_jwks_uri_from_oidc_issuer,
+    export_session_bundle,
     format_jwt_error,
+    import_session_bundle,
     infer_hmac_key_len,
     jwk_from_pem,
     jwk_thumbprint_sha256,
@@ -84,6 +86,20 @@ def _load_text(text_arg: str, label: str) -> str:
     if not text.strip():
         raise ValueError(f"stdin is empty; expected {label}")
     return text
+
+
+def _load_json_object(path_or_stdin: str, label: str) -> dict[str, Any]:
+    if path_or_stdin == "-":
+        raw = sys.stdin.read()
+    else:
+        raw = Path(path_or_stdin).read_text(encoding="utf-8")
+    try:
+        obj = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{label} must be valid JSON") from exc
+    if not isinstance(obj, dict):
+        raise ValueError(f"{label} must be a JSON object")
+    return obj
 
 
 def _emit_warnings(
@@ -211,6 +227,70 @@ def _cmd_export(args: argparse.Namespace) -> int:
         print(exported["token_redacted"])
     else:
         _print_json(exported)
+    return 0
+
+
+def _cmd_session_export(args: argparse.Namespace) -> int:
+    token = _load_token(args.token)
+    if args.token == "-" and args.key_text == "-":
+        raise ValueError("cannot read both token and key from stdin; provide one normally")
+
+    key_text: str | None = None
+    if args.key_text is not None:
+        key_text = _load_text(args.key_text, "key material")
+
+    audience = _parse_allowlist(args.aud)
+    issuer = _parse_allowlist(args.iss)
+    required_claims = _parse_required_claims(args.require)
+    if args.at is not None and int(args.at) < 0:
+        raise ValueError("--at must be a non-negative integer")
+    if int(args.leeway) < 0:
+        raise ValueError("leeway must be a non-negative integer")
+    if args.include_private_key_material and not args.include_key_material:
+        raise ValueError("--include-private-key-material requires --include-key-material")
+
+    bundle = export_session_bundle(
+        token=token,
+        alg=args.alg,
+        key_type=args.key_type,
+        key_text=key_text,
+        kid=args.kid,
+        audience=audience,
+        issuer=issuer,
+        leeway=int(args.leeway),
+        required_claims=required_claims,
+        at=args.at,
+        allow_network=bool(args.allow_network),
+        jwks_url=args.jwks_url,
+        oidc_issuer=args.oidc_issuer,
+        jwks_cache_path=args.jwks_cache,
+        include_key_material=bool(args.include_key_material),
+        include_private_key_material=bool(args.include_private_key_material),
+    )
+    if args.out:
+        Path(args.out).write_text(
+            json.dumps(bundle, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+    if args.output == "text":
+        print(bundle["token_redacted"])
+    else:
+        _print_json(bundle)
+    return 0
+
+
+def _cmd_session_import(args: argparse.Namespace) -> int:
+    session_obj = _load_json_object(args.session, "session")
+    normalized = import_session_bundle(session_obj)
+    if args.output == "text":
+        verify = normalized.get("verify", {})
+        if not isinstance(verify, dict):
+            verify = {}
+        print(str(normalized.get("token", "")))
+        print(f"alg={verify.get('alg', '')}")
+        print(f"key_type={verify.get('key_type', '')}")
+        print(f"key_material_included={normalized.get('key_material_included', False)}")
+    else:
+        _print_json(normalized)
     return 0
 
 
@@ -612,6 +692,106 @@ def main(argv: list[str] | None = None) -> int:
         help="Output format (default: json). text prints only the redacted token.",
     )
     p_export.set_defaults(func=_cmd_export)
+
+    p_session_export = sub.add_parser(
+        "session-export",
+        help=(
+            "Export a reusable workbench session bundle (safe default: no key material; "
+            "private keys/secrets require explicit opt-in)"
+        ),
+    )
+    p_session_export.add_argument(
+        "--token",
+        required=True,
+        help="JWT string (use '-' to read from stdin)",
+    )
+    p_session_export.add_argument(
+        "--output",
+        choices=["json", "text"],
+        default="json",
+        help="Output format (default: json). text prints only the redacted token.",
+    )
+    p_session_export.add_argument("--out", help="Optional file path to write the session JSON")
+    p_session_export.add_argument("--alg", help="Optional algorithm hint (e.g. HS256, RS256)")
+    p_session_export.add_argument(
+        "--key-type",
+        choices=["secret", "pem", "jwk", "jwks"],
+        default="secret",
+        help="Key source type metadata for the saved verify context",
+    )
+    p_session_export.add_argument(
+        "--key-text",
+        help=(
+            "Optional key material for session context (use '-' to read from stdin). "
+            "Not saved unless --include-key-material is set."
+        ),
+    )
+    p_session_export.add_argument("--kid", help="Optional key id for JWKS selection")
+    p_session_export.add_argument(
+        "--aud",
+        action="append",
+        help="Expected audience (repeatable or comma-separated)",
+    )
+    p_session_export.add_argument(
+        "--iss",
+        action="append",
+        help="Expected issuer (repeatable or comma-separated)",
+    )
+    p_session_export.add_argument(
+        "--leeway",
+        type=int,
+        default=0,
+        help="Clock skew in seconds for saved verify context (default: 0)",
+    )
+    p_session_export.add_argument(
+        "--at",
+        type=int,
+        help="Optional verify-at unix timestamp for saved context",
+    )
+    p_session_export.add_argument(
+        "--require",
+        action="append",
+        help=(
+            "Require claim(s) metadata (repeatable or comma-separated; supported: exp, nbf, "
+            "iat, aud, iss)"
+        ),
+    )
+    p_session_export.add_argument(
+        "--allow-network",
+        action="store_true",
+        help="Mark saved context as allowing JWKS/OIDC network fetch",
+    )
+    p_session_export.add_argument("--jwks-url", help="Optional JWKS URL metadata")
+    p_session_export.add_argument("--oidc-issuer", help="Optional OIDC issuer metadata")
+    p_session_export.add_argument("--jwks-cache", help="Optional JWKS cache path metadata")
+    p_session_export.add_argument(
+        "--include-key-material",
+        action="store_true",
+        help="Include provided key material in the session bundle",
+    )
+    p_session_export.add_argument(
+        "--include-private-key-material",
+        action="store_true",
+        help="Include private keys/secrets in the session bundle (sensitive; explicit opt-in)",
+    )
+    p_session_export.set_defaults(func=_cmd_session_export)
+
+    p_session_import = sub.add_parser(
+        "session-import",
+        help="Import and normalize a saved workbench session bundle",
+    )
+    p_session_import.add_argument(
+        "--session",
+        required=True,
+        help="Path to session JSON (use '-' to read from stdin)",
+    )
+    p_session_import.add_argument(
+        "--output",
+        choices=["json", "text"],
+        default="json",
+        help="Output format (default: json). text prints token + key metadata summary.",
+    )
+    p_session_import.set_defaults(func=_cmd_session_import)
 
     p_sample = sub.add_parser("sample", help="Generate offline demo tokens/keys (no network)")
     p_sample.add_argument(

@@ -67,6 +67,75 @@
       },
       "additionalProperties": false
     },
+    "SessionVerifyContext": {
+      "type": "object",
+      "required": ["key_type", "leeway", "allow_network"],
+      "properties": {
+        "alg": { "type": "string" },
+        "key_type": { "type": "string" },
+        "key_text": { "type": "string" },
+        "kid": { "type": "string" },
+        "aud": {},
+        "iss": {},
+        "require": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "leeway": { "type": "integer" },
+        "at": { "type": "integer" },
+        "allow_network": { "type": "boolean" },
+        "jwks_url": { "type": "string" },
+        "oidc_issuer": { "type": "string" },
+        "jwks_cache_path": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "SessionBundle": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "created_at",
+        "token",
+        "token_redacted",
+        "header",
+        "payload",
+        "warnings",
+        "verify",
+        "key_material_included"
+      ],
+      "properties": {
+        "schema_version": { "type": "integer" },
+        "created_at": { "type": "integer" },
+        "token": { "type": "string" },
+        "token_redacted": { "type": "string" },
+        "header": { "$ref": "#/$defs/JwtHeader" },
+        "payload": { "$ref": "#/$defs/JwtPayload" },
+        "warnings": { "$ref": "#/$defs/Warnings" },
+        "verify": { "$ref": "#/$defs/SessionVerifyContext" },
+        "key_material_included": { "type": "boolean" },
+        "notes": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "SessionExportResponse": {
+      "type": "object",
+      "required": ["session"],
+      "properties": {
+        "session": { "$ref": "#/$defs/SessionBundle" }
+      },
+      "additionalProperties": false
+    },
+    "SessionImportResponse": {
+      "type": "object",
+      "required": ["session"],
+      "properties": {
+        "session": { "$ref": "#/$defs/SessionBundle" }
+      },
+      "additionalProperties": false
+    },
     "JwkResponse": {
       "type": "object",
       "required": ["jwk"],
@@ -124,4 +193,3 @@
     }
   }
 }
-
