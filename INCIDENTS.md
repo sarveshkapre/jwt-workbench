@@ -34,3 +34,14 @@ This file records reliability/security incidents, root-cause analysis, and preve
 - Resolution: Add `workflow_dispatch` trigger to CI so the workflow can be re-run manually once GitHub stabilizes.
 - Prevention: Keep `workflow_dispatch` enabled; when CI failures occur during checkout/fetch, treat as transient and re-run before investigating code changes.
 - Evidence: `.github/workflows/ci.yml` (`2af6d77`); GitHub Actions run `21833618716` failed in `actions/checkout` with HTTP 500.
+
+### 2026-02-12T20:01:08Z | Codex execution failure
+- Date: 2026-02-12T20:01:08Z
+- Trigger: Codex execution failure
+- Impact: Repo session did not complete cleanly
+- Root Cause: codex exec returned a non-zero status
+- Fix: Captured failure logs and kept repository in a recoverable state
+- Prevention Rule: Re-run with same pass context and inspect pass log before retrying
+- Evidence: pass_log=logs/20260212-101456-jwt-workbench-cycle-2.log
+- Commit: pending
+- Confidence: medium
